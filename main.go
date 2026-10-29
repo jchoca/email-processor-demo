@@ -25,21 +25,28 @@ func routes() http.Handler {
 	return mux
 }
 
+const maxAddressLen = 254
+
+type address struct {
+	Name    string `json:"name"`
+	Address string `json:"address"`
+}
+
 // single address per field.
 type transactionalEmail struct {
-	From    string `json:"from"`
-	To      string `json:"to"`
-	CC      string `json:"cc"`
-	BCC     string `json:"bcc"`
-	Subject string `json:"subject"`
-	HTML    string `json:"html"`
-	Text    string `json:"text"`
+	From    address `json:"from"`
+	To      address `json:"to"`
+	CC      address `json:"cc"`
+	BCC     address `json:"bcc"`
+	Subject string  `json:"subject"`
+	HTML    string  `json:"html"`
+	Text    string  `json:"text"`
 }
 
 func (e transactionalEmail) validate() error {
 	for _, a := range []struct {
 		name     string
-		value    string
+		value    address
 		required bool
 	}{
 		{"from", e.From, true},
@@ -47,21 +54,30 @@ func (e transactionalEmail) validate() error {
 		{"cc", e.CC, false},
 		{"bcc", e.BCC, false},
 	} {
-		if strings.TrimSpace(a.value) == "" {
+		addr := strings.TrimSpace(a.value.Address)
+		if utf8.RuneCountInString(a.value.Name) > maxAddressLen {
+			return fmt.Errorf("%s.name must be %d characters or fewer", a.name, maxAddressLen)
+		}
+		if utf8.RuneCountInString(addr) > maxAddressLen {
+			return fmt.Errorf("%s.address must be %d characters or fewer", a.name, maxAddressLen)
+		}
+		if addr == "" {
 			if a.required {
-				return fmt.Errorf("%s is required", a.name)
+				return fmt.Errorf("%s.address is required", a.name)
 			}
 			continue
 		}
-		if _, err := mail.ParseAddress(a.value); err != nil {
-			return fmt.Errorf("%s is not a valid email address", a.name)
+		// reject display names here; they belong in .name
+		parsed, err := mail.ParseAddress(addr)
+		if err != nil || parsed.Address != addr {
+			return fmt.Errorf("%s.address is not a valid email address", a.name)
 		}
 	}
 	if strings.TrimSpace(e.HTML) == "" && strings.TrimSpace(e.Text) == "" {
 		return errors.New("html or text body is required")
 	}
-	if utf8.RuneCountInString(e.Subject) > 50 {
-		return errors.New("subject must be 50 characters or fewer")
+	if utf8.RuneCountInString(e.Subject) > 256 {
+		return errors.New("subject must be 256 characters or fewer")
 	}
 	return nil
 }
