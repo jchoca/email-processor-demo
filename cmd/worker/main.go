@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"example.com/email-processor/internal/config"
 	"example.com/email-processor/internal/email"
@@ -21,6 +22,9 @@ import (
 // sendFunc delivers one MIME message to the envelope recipients.
 type sendFunc func(from string, to []string, msg []byte) error
 
+// retryDelay is the wait between send attempts for one message.
+var retryDelay = 5 * time.Second
+
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -31,6 +35,8 @@ func main() {
 		return smtp.SendMail(smtpAddr, nil, from, to, msg)
 	}
 
+	// Commits are explicit (kafka-go only commits via CommitMessages), so an
+	// offset moves forward only after the message was delivered.
 	r := kafka.NewReader(kafka.ReaderConfig{
 		Brokers: config.Brokers(),
 		Topic:   config.TopicAccepted,
@@ -48,31 +54,57 @@ func main() {
 			slog.Error("read", "err", err)
 			continue
 		}
-		// shortcut: offsets auto-commit, so a failed send is dropped;
-		// add a retry/DLQ topic when losing mail is not acceptable
-		if err := handle(m.Value, send); err != nil {
-			slog.Error("handle", "offset", m.Offset, "err", err)
+
+		e, err := decode(m.Value)
+		if err != nil {
+			// unparseable payloads never become sendable: drop instead of blocking
+			slog.Error("skip", "offset", m.Offset, "err", err)
+		} else {
+			deliver(ctx, e, send) // retries until sent or shutting down
+		}
+		if ctx.Err() != nil {
+			return // no commit: the message is redelivered after restart
+		}
+		if err := r.CommitMessages(ctx, m); err != nil {
+			if ctx.Err() != nil {
+				return
+			}
+			slog.Error("commit", "offset", m.Offset, "err", err)
 		}
 	}
 }
 
-// handle decodes one accepted payload, renders MIME and sends it over SMTP.
-func handle(payload []byte, send sendFunc) error {
-	var e email.Transactional
-	if err := json.Unmarshal(payload, &e); err != nil {
-		return fmt.Errorf("decode: %w", err)
-	}
-	if err := e.Validate(); err != nil {
-		return fmt.Errorf("validate: %w", err)
-	}
+// deliver retries sending until it succeeds or ctx is done.
+func deliver(ctx context.Context, e email.Transactional, send sendFunc) {
 	msg, err := mailmsg.Build(e)
 	if err != nil {
-		return fmt.Errorf("build: %w", err)
+		slog.Error("skip", "err", err)
+		return
 	}
 	rcpts := e.Recipients()
-	if err := send(e.From.Address, rcpts, msg); err != nil {
-		return fmt.Errorf("send: %w", err)
+	for attempt := 1; ; attempt++ {
+		err := send(e.From.Address, rcpts, msg)
+		if err == nil {
+			slog.Info("sent", "to", rcpts, "subject", e.Subject)
+			return
+		}
+		slog.Error("send", "attempt", attempt, "err", err)
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(retryDelay):
+		}
 	}
-	slog.Info("sent", "to", rcpts, "subject", e.Subject)
-	return nil
+}
+
+// decode parses and validates one accepted payload.
+func decode(payload []byte) (email.Transactional, error) {
+	var e email.Transactional
+	if err := json.Unmarshal(payload, &e); err != nil {
+		return e, fmt.Errorf("decode: %w", err)
+	}
+	if err := e.Validate(); err != nil {
+		return e, fmt.Errorf("validate: %w", err)
+	}
+	return e, nil
 }
