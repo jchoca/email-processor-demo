@@ -23,8 +23,10 @@ services:
         CMD: worker
     depends_on:
       - kafka
+      - mailpit
     environment:
       KAFKA_BROKERS: kafka:9093
+      SMTP_ADDR: mailpit:1025
     restart: unless-stopped
 
   kafka:
@@ -108,3 +110,10 @@ services:
       interval: 10s
       timeout: 5s
       retries: 10
+
+  mailpit:
+    image: axllent/mailpit
+    ports:
+      - "8025:8025" # web UI
+      - "1025:1025" # SMTP
+    restart: unless-stopped

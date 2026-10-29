@@ -70,3 +70,15 @@ func (e Transactional) Validate() error {
 	}
 	return nil
 }
+
+// Recipients returns the SMTP envelope recipients: to, then cc, then bcc.
+func (e Transactional) Recipients() []string {
+	rcpts := []string{e.To.Address}
+	if e.CC.Address != "" {
+		rcpts = append(rcpts, e.CC.Address)
+	}
+	if e.BCC.Address != "" {
+		rcpts = append(rcpts, e.BCC.Address)
+	}
+	return rcpts
+}

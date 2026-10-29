@@ -24,3 +24,11 @@ func Port() string {
 	}
 	return "8080"
 }
+
+// SMTPAddr returns the SMTP server from SMTP_ADDR.
+func SMTPAddr() string {
+	if a := os.Getenv("SMTP_ADDR"); a != "" {
+		return a
+	}
+	return "localhost:1025"
+}
