@@ -6,8 +6,11 @@ services:
     build: .
     ports:
       - "8080:8080"
+    depends_on:
+      - kafka
     environment:
       PORT: "8080"
+      KAFKA_BROKERS: kafka:9093
     restart: unless-stopped
 
   kafka:

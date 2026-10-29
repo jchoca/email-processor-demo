@@ -14,14 +14,18 @@ import (
 	"syscall"
 	"time"
 	"unicode/utf8"
+
+	"github.com/segmentio/kafka-go"
 )
 
-func routes() http.Handler {
+func routes(produce produceFunc) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
-	mux.HandleFunc("POST /v1/send-transactional", sendTransactional)
+	mux.HandleFunc("POST /v1/send-transactional", func(w http.ResponseWriter, r *http.Request) {
+		sendTransactional(w, r, produce)
+	})
 	return mux
 }
 
@@ -82,9 +86,15 @@ func (e transactionalEmail) validate() error {
 	return nil
 }
 
-const maxBodyBytes = 1 << 20 // 1 MB
+const (
+	maxBodyBytes  = 1 << 20 // 1 MB
+	topicAccepted = "message-accepted"
+)
 
-func sendTransactional(w http.ResponseWriter, r *http.Request) {
+// produceFunc appends one JSON payload to the accepted topic.
+type produceFunc func(ctx context.Context, value []byte) error
+
+func sendTransactional(w http.ResponseWriter, r *http.Request, produce produceFunc) {
 	r.Body = http.MaxBytesReader(w, r.Body, maxBodyBytes)
 	var e transactionalEmail
 	if err := json.NewDecoder(r.Body).Decode(&e); err != nil {
@@ -100,16 +110,32 @@ func sendTransactional(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	if err := json.NewEncoder(os.Stdout).Encode(e); err != nil {
-		slog.Error("log transactional email", "err", err)
+	payload, err := json.Marshal(e)
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	if err := produce(r.Context(), payload); err != nil {
+		slog.Error("produce", "topic", topicAccepted, "err", err)
+		http.Error(w, "failed to enqueue message", http.StatusInternalServerError)
+		return
 	}
 	w.WriteHeader(http.StatusAccepted)
 }
 
 func main() {
+	kw := &kafka.Writer{
+		Addr:         kafka.TCP(brokers()...),
+		Topic:        topicAccepted,
+		RequiredAcks: kafka.RequireAll,
+	}
+	defer kw.Close()
+
 	srv := &http.Server{
-		Addr:              ":" + port(),
-		Handler:           routes(),
+		Addr: ":" + port(),
+		Handler: routes(func(ctx context.Context, value []byte) error {
+			return kw.WriteMessages(ctx, kafka.Message{Value: value})
+		}),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 
@@ -137,4 +163,11 @@ func port() string {
 		return p
 	}
 	return "8080"
+}
+
+func brokers() []string {
+	if b := os.Getenv("KAFKA_BROKERS"); b != "" {
+		return strings.Split(b, ",")
+	}
+	return []string{"localhost:9092"}
 }
