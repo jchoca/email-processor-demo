@@ -6,3 +6,91 @@ services:
     environment:
       PORT: "8080"
     restart: unless-stopped
+
+  kafka:
+    image: apache/kafka-native
+    ports:
+      - "9092:9092"
+    environment:
+      # Configure listeners for both docker and host communication
+      KAFKA_LISTENERS: CONTROLLER://localhost:9091,HOST://0.0.0.0:9092,DOCKER://0.0.0.0:9093
+      KAFKA_ADVERTISED_LISTENERS: HOST://localhost:9092,DOCKER://kafka:9093
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,DOCKER:PLAINTEXT,HOST:PLAINTEXT
+
+      # Settings required for KRaft mode
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@localhost:9091
+
+      # Listener to use for broker-to-broker communication
+      KAFKA_INTER_BROKER_LISTENER_NAME: DOCKER
+
+      # Required for a single node cluster
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+
+  kafka-bootstrap:
+    image: apache/kafka:latest
+    depends_on:
+      - kafka
+    entrypoint: [ "/bin/sh", "-c" ]
+    working_dir: /opt/kafka/bin/
+    command: |
+      "
+      # Wait until kafka is reachable
+      ./kafka-topics.sh --bootstrap-server kafka:9093 --list
+
+      echo -e 'Creating kafka topics'
+      ./kafka-topics.sh --bootstrap-server kafka:9093 --create --if-not-exists --topic message-accepted --replication-factor 1 --partitions 1
+      ./kafka-topics.sh --bootstrap-server kafka:9093 --create --if-not-exists --topic message-processed --replication-factor 1 --partitions 1
+
+      echo -e 'Successfully created the following topics:'
+      ./kafka-topics.sh --bootstrap-server kafka:9093 --list
+      "
+
+  connect:
+    image: docker.redpanda.com/redpandadata/connect
+    command: streams -o /configs/observability.yaml /configs/streams/*.yaml
+    ports:
+      - "4195:4195"
+    volumes:
+      - ./connect/configs/:/configs:ro
+      - ./_docker/aws-credentials:/home/connect/.aws/credentials:ro
+    environment:
+      Kafka_Brokers: kafka:9093
+      Sqs_Endpoint: http://sqs:9324
+      WebhooksJobs_QueueUrl: http://sqs:9324/000000000000/webhooks_jobs
+      Kafka_TlsCaCert: ""
+      Kafka_SaslUsername: ""
+      Kafka_SaslPassword: ""
+
+  opensearch:
+    image: opensearchproject/opensearch
+    environment:
+      - plugins.security.disabled=true
+      - node.name=opensearch
+      - discovery.type=single-node
+      # along with the memlock settings below, disables swapping
+      - bootstrap.memory_lock=true
+      # minimum and maximum Java heap size, recommend setting both to 50% of system RAM
+      - OPENSEARCH_JAVA_OPTS=-Xms2g -Xmx2g
+      # Sets the demo admin user password when using demo configuration, required for OpenSearch 2.12 and higher
+      - OPENSEARCH_INITIAL_ADMIN_PASSWORD=SahxY_ASbWk
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+      nofile:
+        # maximum number of open files for the OpenSearch user, set to at least 65536 on modern systems
+        soft: 65536
+        hard: 65536
+    volumes:
+      - opensearch-data1:/usr/share/opensearch/data
+    ports:
+      - "9200:9200"
+      - "9600:9600"  # required for Performance Analyzer
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:9200" ]
+      interval: 10s
+      timeout: 5s
+      retries: 10

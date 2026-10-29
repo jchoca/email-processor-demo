@@ -1,0 +1,36 @@
+input:
+  kafka:
+    addresses:
+      - ${Kafka_Brokers}
+    consumer_group: ${Kafka_ConsumerGroup:rp.connect}
+    topics:
+      - message-accepted
+
+# pipeline:
+#   processors:
+#     - bloblang: |
+#         meta = deleted()
+
+#         root = {}
+#         root.timestamp = this.timestamp
+#         root.eventId = this.eventId
+#         root.accountId = this.accountId
+#         root.channelId = this.channelId
+#         root.messageId = this.messageId
+#         root.eventType = "MessageAccepted"
+
+#         root.payload = {}
+#         root.payload.eventType = "message-accepted"
+#         root.payload.timestamp = this.timestamp
+#         root.payload.messageId = this.messageId
+#         root.payload.channelId = this.channelId
+#         root.payload.mailType = this.mailType.lowercase()
+#         root.payload.recipients = this.recipients
+#         root.payload.subject = this.subject
+#         root.payload.tags = this.tags
+#         root.payload.metadata = this.metadata
+
+output:
+  label: ""
+  stdout:
+    codec: lines
