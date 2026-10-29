@@ -16,18 +16,18 @@ const maxBodyBytes = 1 << 20 // 1 MB
 // produceFunc appends one JSON payload to the accepted topic.
 type produceFunc func(ctx context.Context, value []byte) error
 
-func routes(produce produceFunc) http.Handler {
+func routes(produce produceFunc, allowedSenders []string) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
 	mux.HandleFunc("POST /v1/send-transactional", func(w http.ResponseWriter, r *http.Request) {
-		sendTransactional(w, r, produce)
+		sendTransactional(w, r, produce, allowedSenders)
 	})
 	return mux
 }
 
-func sendTransactional(w http.ResponseWriter, r *http.Request, produce produceFunc) {
+func sendTransactional(w http.ResponseWriter, r *http.Request, produce produceFunc, allowedSenders []string) {
 	r.Body = http.MaxBytesReader(w, r.Body, maxBodyBytes)
 	var e email.Transactional
 	if err := json.NewDecoder(r.Body).Decode(&e); err != nil {
@@ -41,6 +41,10 @@ func sendTransactional(w http.ResponseWriter, r *http.Request, produce produceFu
 	}
 	if err := e.Validate(); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if !e.SenderAllowed(allowedSenders) {
+		http.Error(w, "from domain is not allowed to send", http.StatusBadRequest)
 		return
 	}
 	payload, err := json.Marshal(e)

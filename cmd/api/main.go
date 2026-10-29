@@ -1,4 +1,3 @@
-// Command api accepts transactional emails and produces them to Kafka.
 package main
 
 import (
@@ -28,7 +27,7 @@ func main() {
 		Addr: ":" + config.Port(),
 		Handler: routes(func(ctx context.Context, value []byte) error {
 			return kw.WriteMessages(ctx, kafka.Message{Value: value})
-		}),
+		}, config.SenderDomains()),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 

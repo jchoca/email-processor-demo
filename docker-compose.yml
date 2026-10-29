@@ -27,6 +27,8 @@ services:
     environment:
       KAFKA_BROKERS: kafka:9093
       SMTP_ADDR: mailpit:1025
+      # Mailpit has no STARTTLS/AUTH; a real relay (e.g. SES) needs both
+      SMTP_TLS: "false"
     restart: unless-stopped
 
   kafka:

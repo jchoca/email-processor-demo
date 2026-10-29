@@ -32,3 +32,30 @@ func SMTPAddr() string {
 	}
 	return "localhost:1025"
 }
+
+// SMTPUsername returns the SMTP AUTH username from SMTP_USERNAME.
+func SMTPUsername() string { return os.Getenv("SMTP_USERNAME") }
+
+// SMTPPassword returns the SMTP AUTH password from SMTP_PASSWORD.
+func SMTPPassword() string { return os.Getenv("SMTP_PASSWORD") }
+
+// SMTPRequireTLS reports whether STARTTLS is mandatory; SMTP_TLS=false turns it off.
+func SMTPRequireTLS() bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("SMTP_TLS"))) {
+	case "false", "0", "no":
+		return false
+	}
+	return true
+}
+
+// SenderDomains returns the allowed from-domains from ALLOWED_SENDER_DOMAINS.
+// Empty means any sender is accepted (local demo default).
+func SenderDomains() []string {
+	var domains []string
+	for _, d := range strings.Split(os.Getenv("ALLOWED_SENDER_DOMAINS"), ",") {
+		if d = strings.TrimSpace(d); d != "" {
+			domains = append(domains, d)
+		}
+	}
+	return domains
+}

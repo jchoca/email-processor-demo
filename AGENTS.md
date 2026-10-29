@@ -36,7 +36,8 @@ cmd/api/         HTTP server + handler + tests
 cmd/worker/      Kafka consumer, SMTP sender, retry loop + tests
 internal/email/  Transactional/Address types, validation, Recipients()
 internal/mailmsg/ MIME rendering (multipart/alternative, quoted-printable)
-internal/config/ env config: PORT, KAFKA_BROKERS, SMTP_ADDR
+internal/sender/  SMTP client: dial timeout, optional required STARTTLS, optional AUTH
+internal/config/  env config: PORT, KAFKA_BROKERS, SMTP_*, ALLOWED_SENDER_DOMAINS
 connect/         redpanda connect stream configs
 docker-compose.yml  kafka, kafka-bootstrap (topics), api, worker, mailpit, connect, opensearch
 Dockerfile       one image, `--build-arg CMD=api|worker`
@@ -72,6 +73,8 @@ Then check `http://localhost:8025` (Mailpit) or `docker compose logs worker`.
 - `name` and `address` ≤ 254 characters (runes), `subject` ≤ 256 characters.
 - At least one of `html` / `text` is required.
 - Whole request body ≤ 1 MB (`http.MaxBytesReader`, 413 over the limit).
+- `from` domain must be in `ALLOWED_SENDER_DOMAINS` (empty = any, the demo
+  default); a domain also authorises its subdomains. Enforced by API and worker.
 - Validation lives in `internal/email.Validate()`; the worker re-validates.
 - Responses: `202` accepted, `400` validation/JSON, `413` too large, `500` if the
   Kafka produce fails.
@@ -79,9 +82,16 @@ Then check `http://localhost:8025` (Mailpit) or `docker compose logs worker`.
 ## Known deliberate shortcuts
 
 - No API auth, no rate limiting.
-- Plaintext SMTP only (`net/smtp`, no TLS/auth) — fine for Mailpit.
-- Sends retry forever with a 5s delay, blocking the partition; a poison payload is
-  logged and skipped. No DLQ.
+- SMTP: `SMTP_TLS=false` in compose because Mailpit offers no STARTTLS/AUTH. Left
+  at its default (true), the sender refuses to send without STARTTLS; set
+  `SMTP_USERNAME`/`SMTP_PASSWORD` for relays that require AUTH (e.g. SES).
+- Transient SMTP errors (4xx, network) retry forever with exponential backoff
+  (1s doubling to 1 min), blocking the partition; SMTP 5xx is logged and dropped as
+  permanent, as are unparseable or disallowed payloads. No DLQ.
+- Commits are explicit: the worker uses `FetchMessage` + `CommitMessages` because
+  kafka-go's `ReadMessage` commits *before* the message is processed.
+- Sender allowlist is a plain domain list, not SES identity verification.
+- SMTP gives no message ID back and no bounce/complaint feedback.
 - Kafka message key is unset; one partition, so ordering is trivially preserved.
 - No Message-ID header (server adds one), no DKIM/SPF, no bounce handling.
 - API returns 500 if Kafka is unreachable; no queue or retry.

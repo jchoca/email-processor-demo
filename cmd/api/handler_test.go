@@ -21,7 +21,7 @@ func addr(name, address string) string {
 
 func TestHealthz(t *testing.T) {
 	rec := httptest.NewRecorder()
-	routes(noProduce).ServeHTTP(rec, httptest.NewRequest("GET", "/healthz", nil))
+	routes(noProduce, nil).ServeHTTP(rec, httptest.NewRequest("GET", "/healthz", nil))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("got %d, want 200", rec.Code)
 	}
@@ -31,20 +31,20 @@ func TestSendTransactional(t *testing.T) {
 	body := `{"from":` + addr("Alice", "a@example.com") + `,"to":` + addr("Bob", "b@example.com") +
 		`,"cc":` + addr("", "") + `,"bcc":` + addr("", "") + `,"subject":"hi","html":"<p>hi</p>","text":"hi"}`
 	rec := httptest.NewRecorder()
-	routes(noProduce).ServeHTTP(rec, httptest.NewRequest("POST", "/v1/send-transactional", strings.NewReader(body)))
+	routes(noProduce, nil).ServeHTTP(rec, httptest.NewRequest("POST", "/v1/send-transactional", strings.NewReader(body)))
 	if rec.Code != http.StatusAccepted {
 		t.Fatalf("got %d, want 202", rec.Code)
 	}
 
 	rec = httptest.NewRecorder()
-	routes(noProduce).ServeHTTP(rec, httptest.NewRequest("POST", "/v1/send-transactional", strings.NewReader("not json")))
+	routes(noProduce, nil).ServeHTTP(rec, httptest.NewRequest("POST", "/v1/send-transactional", strings.NewReader("not json")))
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("got %d, want 400", rec.Code)
 	}
 
 	// old flat-string shape is no longer valid
 	rec = httptest.NewRecorder()
-	routes(noProduce).ServeHTTP(rec, httptest.NewRequest("POST", "/v1/send-transactional",
+	routes(noProduce, nil).ServeHTTP(rec, httptest.NewRequest("POST", "/v1/send-transactional",
 		strings.NewReader(`{"from":"a@example.com","to":"b@example.com","text":"hi"}`)))
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("got %d, want 400", rec.Code)
@@ -52,7 +52,7 @@ func TestSendTransactional(t *testing.T) {
 
 	// validation errors surface as 400
 	rec = httptest.NewRecorder()
-	routes(noProduce).ServeHTTP(rec, httptest.NewRequest("POST", "/v1/send-transactional",
+	routes(noProduce, nil).ServeHTTP(rec, httptest.NewRequest("POST", "/v1/send-transactional",
 		strings.NewReader(`{"from":`+addr("", "nope")+`,"to":`+addr("", "b@example.com")+`,"text":"hi"}`)))
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("got %d, want 400", rec.Code)
@@ -63,7 +63,7 @@ func TestSendTransactionalBodyTooLarge(t *testing.T) {
 	body := `{"from":{"address":"a@example.com"},"to":{"address":"b@example.com"},"text":"` +
 		strings.Repeat("a", maxBodyBytes) + `"}`
 	rec := httptest.NewRecorder()
-	routes(noProduce).ServeHTTP(rec, httptest.NewRequest("POST", "/v1/send-transactional", strings.NewReader(body)))
+	routes(noProduce, nil).ServeHTTP(rec, httptest.NewRequest("POST", "/v1/send-transactional", strings.NewReader(body)))
 	if rec.Code != http.StatusRequestEntityTooLarge {
 		t.Fatalf("got %d, want 413", rec.Code)
 	}
@@ -75,7 +75,7 @@ func TestSendTransactionalProduces(t *testing.T) {
 	h := routes(func(_ context.Context, value []byte) error {
 		produced = append(produced, value)
 		return produceErr
-	})
+	}, nil)
 	body := `{"from":` + addr("Alice", "a@example.com") + `,"to":` + addr("", "b@example.com") + `,"subject":"hi","text":"hi"}`
 
 	rec := httptest.NewRecorder()
@@ -107,5 +107,29 @@ func TestSendTransactionalProduces(t *testing.T) {
 	h.ServeHTTP(rec, httptest.NewRequest("POST", "/v1/send-transactional", strings.NewReader(body)))
 	if rec.Code != http.StatusInternalServerError {
 		t.Fatalf("got %d, want 500", rec.Code)
+	}
+}
+
+func TestSendTransactionalSenderDomains(t *testing.T) {
+	body := `{"from":` + addr("Alice", "a@example.com") + `,"to":` + addr("", "b@example.com") + `,"text":"hi"}`
+
+	rec := httptest.NewRecorder()
+	routes(noProduce, []string{"example.com"}).ServeHTTP(rec, httptest.NewRequest("POST", "/v1/send-transactional", strings.NewReader(body)))
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("allowed domain: got %d, want 202", rec.Code)
+	}
+
+	rec = httptest.NewRecorder()
+	routes(noProduce, []string{"other.com"}).ServeHTTP(rec, httptest.NewRequest("POST", "/v1/send-transactional", strings.NewReader(body)))
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("disallowed domain: got %d, want 400", rec.Code)
+	}
+
+	// a verified domain also authorises its subdomains
+	sub := `{"from":` + addr("", "a@mail.example.com") + `,"to":` + addr("", "b@example.com") + `,"text":"hi"}`
+	rec = httptest.NewRecorder()
+	routes(noProduce, []string{"example.com"}).ServeHTTP(rec, httptest.NewRequest("POST", "/v1/send-transactional", strings.NewReader(sub)))
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("subdomain: got %d, want 202", rec.Code)
 	}
 }

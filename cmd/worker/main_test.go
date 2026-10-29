@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
+	"net/textproto"
 	"strings"
 	"testing"
 	"time"
@@ -14,7 +16,7 @@ const validPayload = `{"from":{"name":"Alice","address":"a@example.com"},"to":{"
 	`"cc":{"name":"","address":"c@example.com"},"bcc":{"name":"","address":"d@example.com"},"subject":"hi","text":"hi"}`
 
 func TestDecode(t *testing.T) {
-	e, err := decode([]byte(validPayload))
+	e, err := decode([]byte(validPayload), nil)
 	if err != nil {
 		t.Fatalf("decode: %v", err)
 	}
@@ -29,17 +31,17 @@ func TestDecode(t *testing.T) {
 		"missing from":  `{"to":{"address":"b@example.com"},"text":"hi"}`,
 	}
 	for name, payload := range tests {
-		if _, err := decode([]byte(payload)); err == nil {
+		if _, err := decode([]byte(payload), nil); err == nil {
 			t.Errorf("%s: want error, got nil", name)
 		}
 	}
 }
 
 func TestDeliver(t *testing.T) {
-	defer func(d time.Duration) { retryDelay = d }(retryDelay)
-	retryDelay = time.Millisecond
+	defer func(base, max time.Duration) { retryBase, retryMax = base, max }(retryBase, retryMax)
+	retryBase, retryMax = time.Millisecond, 5*time.Millisecond
 
-	e, err := decode([]byte(validPayload))
+	e, err := decode([]byte(validPayload), nil)
 	if err != nil {
 		t.Fatalf("decode: %v", err)
 	}
@@ -95,5 +97,68 @@ func TestDeliverSkipsUnbuildable(t *testing.T) {
 	})
 	if called {
 		t.Error("send called for message with no body")
+	}
+}
+
+func TestPermanent(t *testing.T) {
+	cases := []struct {
+		err  error
+		want bool
+	}{
+		{&textproto.Error{Code: 550, Msg: "no such user"}, true},
+		{fmt.Errorf("send: %w", &textproto.Error{Code: 554, Msg: "rejected"}), true},
+		{&textproto.Error{Code: 451, Msg: "try later"}, false},
+		{&textproto.Error{Code: 421, Msg: "throttled"}, false},
+		{errors.New("dial tcp: connection refused"), false},
+	}
+	for _, tc := range cases {
+		if got := permanent(tc.err); got != tc.want {
+			t.Errorf("permanent(%v) = %v, want %v", tc.err, got, tc.want)
+		}
+	}
+}
+
+func TestDeliverDropsPermanent(t *testing.T) {
+	e, err := decode([]byte(validPayload), nil)
+	if err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	attempts := 0
+	deliver(context.Background(), e, func(string, []string, []byte) error {
+		attempts++
+		return &textproto.Error{Code: 550, Msg: "no such user"}
+	})
+	if attempts != 1 {
+		t.Fatalf("attempts = %d, want 1 (5xx is not retried)", attempts)
+	}
+}
+
+func TestDeliverRetriesTransient(t *testing.T) {
+	defer func(base, max time.Duration) { retryBase, retryMax = base, max }(retryBase, retryMax)
+	retryBase, retryMax = time.Millisecond, 5*time.Millisecond
+
+	e, err := decode([]byte(validPayload), nil)
+	if err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	attempts := 0
+	deliver(context.Background(), e, func(string, []string, []byte) error {
+		attempts++
+		if attempts < 3 {
+			return &textproto.Error{Code: 451, Msg: "try later"}
+		}
+		return nil
+	})
+	if attempts != 3 {
+		t.Fatalf("attempts = %d, want 3", attempts)
+	}
+}
+
+func TestDecodeRejectsDisallowedSender(t *testing.T) {
+	if _, err := decode([]byte(validPayload), []string{"other.com"}); err == nil {
+		t.Fatal("want error for sender outside the allowlist")
+	}
+	if _, err := decode([]byte(validPayload), []string{"example.com"}); err != nil {
+		t.Fatalf("allowed sender rejected: %v", err)
 	}
 }

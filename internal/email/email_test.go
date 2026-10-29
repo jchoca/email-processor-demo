@@ -69,3 +69,31 @@ func TestValidateBoundaries(t *testing.T) {
 		t.Fatalf("254/256 lengths should pass: %v", err)
 	}
 }
+
+func TestSenderAllowed(t *testing.T) {
+	e := valid() // a@example.com
+	cases := []struct {
+		allowed []string
+		want    bool
+	}{
+		{nil, true},
+		{[]string{"example.com"}, true},
+		{[]string{"EXAMPLE.COM"}, true},
+		{[]string{"x.com", "example.com"}, true},
+		{[]string{"x.com"}, false},
+		{[]string{"ample.com"}, false},
+	}
+	for _, tc := range cases {
+		if got := e.SenderAllowed(tc.allowed); got != tc.want {
+			t.Errorf("SenderAllowed(%v) = %v, want %v", tc.allowed, got, tc.want)
+		}
+	}
+
+	e.From.Address = "a@mail.example.com"
+	if !e.SenderAllowed([]string{"example.com"}) {
+		t.Error("subdomain of allowed domain should be allowed")
+	}
+	if e.SenderAllowed([]string{"example.com.evil.com"}) {
+		t.Error("lookalike domain should not be allowed")
+	}
+}

@@ -82,3 +82,19 @@ func (e Transactional) Recipients() []string {
 	}
 	return rcpts
 }
+
+// SenderAllowed reports whether the from domain is one of allowed (a domain
+// also authorises its subdomains). An empty allowlist accepts any sender.
+func (e Transactional) SenderAllowed(allowed []string) bool {
+	if len(allowed) == 0 {
+		return true
+	}
+	host := strings.ToLower(e.From.Address[strings.LastIndex(e.From.Address, "@")+1:])
+	for _, d := range allowed {
+		d = strings.ToLower(strings.TrimSpace(d))
+		if d != "" && (host == d || strings.HasSuffix(host, "."+d)) {
+			return true
+		}
+	}
+	return false
+}
