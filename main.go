@@ -2,13 +2,18 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
+	"net/mail"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
+	"unicode/utf8"
 )
 
 func routes() http.Handler {
@@ -16,7 +21,65 @@ func routes() http.Handler {
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
+	mux.HandleFunc("POST /v1/send-transactional", sendTransactional)
 	return mux
+}
+
+// single address per field.
+type transactionalEmail struct {
+	From    string `json:"from"`
+	To      string `json:"to"`
+	CC      string `json:"cc"`
+	BCC     string `json:"bcc"`
+	Subject string `json:"subject"`
+	HTML    string `json:"html"`
+	Text    string `json:"text"`
+}
+
+func (e transactionalEmail) validate() error {
+	for _, a := range []struct {
+		name     string
+		value    string
+		required bool
+	}{
+		{"from", e.From, true},
+		{"to", e.To, true},
+		{"cc", e.CC, false},
+		{"bcc", e.BCC, false},
+	} {
+		if strings.TrimSpace(a.value) == "" {
+			if a.required {
+				return fmt.Errorf("%s is required", a.name)
+			}
+			continue
+		}
+		if _, err := mail.ParseAddress(a.value); err != nil {
+			return fmt.Errorf("%s is not a valid email address", a.name)
+		}
+	}
+	if strings.TrimSpace(e.HTML) == "" && strings.TrimSpace(e.Text) == "" {
+		return errors.New("html or text body is required")
+	}
+	if utf8.RuneCountInString(e.Subject) > 50 {
+		return errors.New("subject must be 50 characters or fewer")
+	}
+	return nil
+}
+
+func sendTransactional(w http.ResponseWriter, r *http.Request) {
+	var e transactionalEmail
+	if err := json.NewDecoder(r.Body).Decode(&e); err != nil {
+		http.Error(w, "invalid JSON body", http.StatusBadRequest)
+		return
+	}
+	if err := e.validate(); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if err := json.NewEncoder(os.Stdout).Encode(e); err != nil {
+		slog.Error("log transactional email", "err", err)
+	}
+	w.WriteHeader(http.StatusAccepted)
 }
 
 func main() {
