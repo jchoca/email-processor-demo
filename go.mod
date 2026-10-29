@@ -1,4 +1,4 @@
-module example.com/api
+module example.com/email-processor
 
 go 1.26
 

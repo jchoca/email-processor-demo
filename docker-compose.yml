@@ -3,13 +3,27 @@ volumes:
 
 services:
   api:
-    build: .
+    build:
+      context: .
+      args:
+        CMD: api
     ports:
       - "8080:8080"
     depends_on:
       - kafka
     environment:
       PORT: "8080"
+      KAFKA_BROKERS: kafka:9093
+    restart: unless-stopped
+
+  worker:
+    build:
+      context: .
+      args:
+        CMD: worker
+    depends_on:
+      - kafka
+    environment:
       KAFKA_BROKERS: kafka:9093
     restart: unless-stopped
 

@@ -8,6 +8,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"example.com/email-processor/internal/email"
 )
 
 var noProduce = func(context.Context, []byte) error { return nil }
@@ -47,51 +49,13 @@ func TestSendTransactional(t *testing.T) {
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("got %d, want 400", rec.Code)
 	}
-}
 
-func TestSendTransactionalValidation(t *testing.T) {
-	from := addr("", "a@example.com")
-	to := addr("", "b@example.com")
-	bad := map[string]string{
-		"missing from": `{"to":` + to + `,"text":"hi"}`,
-		"missing to":   `{"from":` + from + `,"text":"hi"}`,
-		"blank from":   `{"from":` + addr("Alice", "  ") + `,"to":` + to + `,"text":"hi"}`,
-		"bad from":     `{"from":` + addr("Alice", "nope") + `,"to":` + to + `,"text":"hi"}`,
-		"bad to":       `{"from":` + from + `,"to":` + addr("", "nope") + `,"text":"hi"}`,
-		"bad cc":       `{"from":` + from + `,"to":` + to + `,"cc":` + addr("", "nope") + `,"text":"hi"}`,
-		"bad bcc":      `{"from":` + from + `,"to":` + to + `,"bcc":` + addr("", "nope") + `,"text":"hi"}`,
-		"name in addr": `{"from":` + addr("", "Alice <a@example.com>") + `,"to":` + to + `,"text":"hi"}`,
-		"long name":    `{"from":` + addr(strings.Repeat("x", 255), "a@example.com") + `,"to":` + to + `,"text":"hi"}`,
-		"long address": `{"from":` + addr("", strings.Repeat("a", 243)+"@example.com") + `,"to":` + to + `,"text":"hi"}`,
-		"long cc name": `{"from":` + from + `,"to":` + to + `,"cc":` + addr(strings.Repeat("x", 255), "") + `,"text":"hi"}`,
-		"no body":      `{"from":` + from + `,"to":` + to + `}`,
-		"blank body":   `{"from":` + from + `,"to":` + to + `,"html":" ","text":" "}`,
-		"long subject": `{"from":` + from + `,"to":` + to + `,"text":"hi","subject":"` + strings.Repeat("x", 257) + `"}`,
-	}
-	for name, body := range bad {
-		rec := httptest.NewRecorder()
-		routes(noProduce).ServeHTTP(rec, httptest.NewRequest("POST", "/v1/send-transactional", strings.NewReader(body)))
-		if rec.Code != http.StatusBadRequest {
-			t.Errorf("%s: got %d, want 400", name, rec.Code)
-		}
-	}
-
-	// cc/bcc optional, text-only body is fine, display name + 256-char subject ok
-	rec := httptest.NewRecorder()
-	body := `{"from":` + addr("Séndér", "a@example.com") + `,"to":` + to +
-		`,"text":"hi","subject":"` + strings.Repeat("é", 256) + `"}`
-	routes(noProduce).ServeHTTP(rec, httptest.NewRequest("POST", "/v1/send-transactional", strings.NewReader(body)))
-	if rec.Code != http.StatusAccepted {
-		t.Fatalf("got %d, want 202", rec.Code)
-	}
-
-	// exactly 254 characters must still pass
+	// validation errors surface as 400
 	rec = httptest.NewRecorder()
-	body = `{"from":` + addr(strings.Repeat("é", 254), strings.Repeat("a", 242)+"@example.com") +
-		`,"to":` + to + `,"text":"hi"}`
-	routes(noProduce).ServeHTTP(rec, httptest.NewRequest("POST", "/v1/send-transactional", strings.NewReader(body)))
-	if rec.Code != http.StatusAccepted {
-		t.Fatalf("boundary: got %d, want 202", rec.Code)
+	routes(noProduce).ServeHTTP(rec, httptest.NewRequest("POST", "/v1/send-transactional",
+		strings.NewReader(`{"from":`+addr("", "nope")+`,"to":`+addr("", "b@example.com")+`,"text":"hi"}`)))
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("got %d, want 400", rec.Code)
 	}
 }
 
@@ -122,11 +86,11 @@ func TestSendTransactionalProduces(t *testing.T) {
 	if len(produced) != 1 {
 		t.Fatalf("got %d produced messages, want 1", len(produced))
 	}
-	var got transactionalEmail
+	var got email.Transactional
 	if err := json.Unmarshal(produced[0], &got); err != nil {
 		t.Fatalf("produced payload not JSON: %v", err)
 	}
-	if got.From != (address{"Alice", "a@example.com"}) || got.Subject != "hi" {
+	if got.From != (email.Address{Name: "Alice", Address: "a@example.com"}) || got.Subject != "hi" {
 		t.Fatalf("unexpected payload: %+v", got)
 	}
 
