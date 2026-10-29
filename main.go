@@ -82,9 +82,17 @@ func (e transactionalEmail) validate() error {
 	return nil
 }
 
+const maxBodyBytes = 1 << 20 // 1 MB
+
 func sendTransactional(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, maxBodyBytes)
 	var e transactionalEmail
 	if err := json.NewDecoder(r.Body).Decode(&e); err != nil {
+		var tooBig *http.MaxBytesError
+		if errors.As(err, &tooBig) {
+			http.Error(w, "request body too large", http.StatusRequestEntityTooLarge)
+			return
+		}
 		http.Error(w, "invalid JSON body", http.StatusBadRequest)
 		return
 	}

@@ -89,3 +89,13 @@ func TestSendTransactionalValidation(t *testing.T) {
 		t.Fatalf("boundary: got %d, want 202", rec.Code)
 	}
 }
+
+func TestSendTransactionalBodyTooLarge(t *testing.T) {
+	body := `{"from":{"address":"a@example.com"},"to":{"address":"b@example.com"},"text":"` +
+		strings.Repeat("a", maxBodyBytes) + `"}`
+	rec := httptest.NewRecorder()
+	routes().ServeHTTP(rec, httptest.NewRequest("POST", "/v1/send-transactional", strings.NewReader(body)))
+	if rec.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("got %d, want 413", rec.Code)
+	}
+}
