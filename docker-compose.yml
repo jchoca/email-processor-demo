@@ -1,3 +1,6 @@
+volumes:
+  opensearch-data1:
+
 services:
   api:
     build: .
@@ -55,14 +58,8 @@ services:
       - "4195:4195"
     volumes:
       - ./connect/configs/:/configs:ro
-      - ./_docker/aws-credentials:/home/connect/.aws/credentials:ro
     environment:
       Kafka_Brokers: kafka:9093
-      Sqs_Endpoint: http://sqs:9324
-      WebhooksJobs_QueueUrl: http://sqs:9324/000000000000/webhooks_jobs
-      Kafka_TlsCaCert: ""
-      Kafka_SaslUsername: ""
-      Kafka_SaslPassword: ""
 
   opensearch:
     image: opensearchproject/opensearch
@@ -75,7 +72,7 @@ services:
       # minimum and maximum Java heap size, recommend setting both to 50% of system RAM
       - OPENSEARCH_JAVA_OPTS=-Xms2g -Xmx2g
       # Sets the demo admin user password when using demo configuration, required for OpenSearch 2.12 and higher
-      - OPENSEARCH_INITIAL_ADMIN_PASSWORD=SahxY_ASbWk
+      - OPENSEARCH_INITIAL_ADMIN_PASSWORD=SahxY_fASbWk_3fa33do
     ulimits:
       memlock:
         soft: -1
