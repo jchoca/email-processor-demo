@@ -80,10 +80,12 @@ func TestDeliver(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
 	defer cancel()
 	attempts = 0
-	deliver(ctx, e, func(string, []string, []byte) error {
+	if deliver(ctx, e, func(string, []string, []byte) error {
 		attempts++
 		return errors.New("smtp down")
-	})
+	}) {
+		t.Error("deliver reported success for an unsent message")
+	}
 	if attempts < 2 {
 		t.Fatalf("attempts = %d, want repeated retries", attempts)
 	}
@@ -91,10 +93,12 @@ func TestDeliver(t *testing.T) {
 
 func TestDeliverSkipsUnbuildable(t *testing.T) {
 	called := false
-	deliver(context.Background(), email.Transactional{}, func(string, []string, []byte) error {
+	if deliver(context.Background(), email.Transactional{}, func(string, []string, []byte) error {
 		called = true
 		return nil
-	})
+	}) {
+		t.Error("deliver reported success for an unbuildable message")
+	}
 	if called {
 		t.Error("send called for message with no body")
 	}
@@ -124,10 +128,12 @@ func TestDeliverDropsPermanent(t *testing.T) {
 		t.Fatalf("decode: %v", err)
 	}
 	attempts := 0
-	deliver(context.Background(), e, func(string, []string, []byte) error {
+	if deliver(context.Background(), e, func(string, []string, []byte) error {
 		attempts++
 		return &textproto.Error{Code: 550, Msg: "no such user"}
-	})
+	}) {
+		t.Error("deliver reported success for a dropped message")
+	}
 	if attempts != 1 {
 		t.Fatalf("attempts = %d, want 1 (5xx is not retried)", attempts)
 	}

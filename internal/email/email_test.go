@@ -14,6 +14,30 @@ func valid() Transactional {
 	}
 }
 
+func TestStamp(t *testing.T) {
+	e := valid()
+	e.NewMessage()
+	messageID, eventID := e.MessageID, e.EventID
+	if len(messageID) != 36 || messageID == eventID {
+		t.Fatalf("messageId = %q, eventId = %q, want distinct UUIDs", messageID, eventID)
+	}
+	if eventID[14] != '4' || !strings.ContainsRune("89ab", rune(eventID[19])) {
+		t.Fatalf("%q is not a UUIDv4", eventID)
+	}
+	if e.Timestamp.Nanosecond() != 0 {
+		t.Fatalf("timestamp = %v, want second precision", e.Timestamp)
+	}
+
+	// the next hop mints a new event but keeps the message
+	e.Stamp()
+	if e.MessageID != messageID {
+		t.Errorf("messageId = %q, want %q kept across events", e.MessageID, messageID)
+	}
+	if len(e.EventID) != 36 || e.EventID == eventID || e.EventID == messageID {
+		t.Errorf("eventId = %q, want a new UUID", e.EventID)
+	}
+}
+
 func TestValidate(t *testing.T) {
 	if err := valid().Validate(); err != nil {
 		t.Fatalf("valid payload rejected: %v", err)
@@ -44,6 +68,7 @@ func TestValidate(t *testing.T) {
 		{"no body", func(e *Transactional) { e.HTML, e.Text = "", "" }, "html or text body is required"},
 		{"blank body", func(e *Transactional) { e.HTML, e.Text = " ", " " }, "html or text body is required"},
 		{"long subject", func(e *Transactional) { e.Subject = strings.Repeat("é", 257) }, "subject must be 256"},
+		{"too many tags", func(e *Transactional) { e.Tags = []string{"a", "b", "c", "d", "e", "f"} }, "tags must be 5"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -65,8 +90,9 @@ func TestValidateBoundaries(t *testing.T) {
 	e.From.Name = strings.Repeat("é", 254)
 	e.From.Address = strings.Repeat("a", 242) + "@example.com" // 254 runes
 	e.Subject = strings.Repeat("é", 256)
+	e.Tags = []string{"a", "b", "c", "d", "e"}
 	if err := e.Validate(); err != nil {
-		t.Fatalf("254/256 lengths should pass: %v", err)
+		t.Fatalf("254/256 lengths and 5 tags should pass: %v", err)
 	}
 }
 

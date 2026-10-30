@@ -19,14 +19,19 @@ these shortcuts into real systems.
 ```
 client ──POST /v1/send-transactional──> cmd/api ──> kafka topic "message-accepted"
                                                           │
-                                        ├── cmd/worker ──> SMTP (Mailpit locally)
-                                        └── redpanda connect streams ──> stdout
+                       ├── cmd/worker ──> SMTP (Mailpit locally)
+                       │        └────────> kafka topic "message-processed"
+                       └── redpanda connect streams ──> clickhouse
 ```
 
-- `cmd/api` validates the payload and produces the JSON to `message-accepted`.
-- `cmd/worker` consumes it, renders MIME (`internal/mailmsg`) and sends via SMTP.
-- `connect/configs/streams/*.yaml` are redpanda connect pipelines that also read
-  the topics and print to stdout (used as a debugging window in the demo).
+- `cmd/api` stamps `messageId`, `eventId` and `timestamp` (UUIDv4s), validates the
+  payload and produces the JSON to `message-accepted`.
+- `cmd/worker` consumes it, renders MIME (`internal/mailmsg`), sends via SMTP and
+  then republishes the payload to `message-processed` stamped as its own event:
+  fresh `eventId`, send-time `timestamp`, same `messageId`.
+- `connect/configs/streams/*.yaml` are redpanda connect pipelines that read the
+  topics and insert one row per message into clickhouse (`message_accepted` /
+  `message_processed`).
 - `mailpit` (`http://localhost:8025`) is the local SMTP sink; API is on `:8080`.
 
 ## Layout
@@ -34,12 +39,14 @@ client ──POST /v1/send-transactional──> cmd/api ──> kafka topic "mes
 ```
 cmd/api/         HTTP server + handler + tests
 cmd/worker/      Kafka consumer, SMTP sender, retry loop + tests
-internal/email/  Transactional/Address types, validation, Recipients()
+internal/email/  Transactional/Address types, NewMessage()/Stamp(), validation, Recipients()
 internal/mailmsg/ MIME rendering (multipart/alternative, quoted-printable)
 internal/sender/  SMTP client: dial timeout, optional required STARTTLS, optional AUTH
 internal/config/  env config: PORT, KAFKA_BROKERS, SMTP_*, ALLOWED_SENDER_DOMAINS
 connect/         redpanda connect stream configs
-docker-compose.yml  kafka, kafka-bootstrap (topics), api, worker, mailpit, connect, opensearch
+clickhouse/      init.sql, run once on first clickhouse start (message_accepted,
+                 message_processed tables)
+docker-compose.yml  kafka, kafka-bootstrap (topics), api, worker, mailpit, connect, opensearch, clickhouse
 Dockerfile       one image, `--build-arg CMD=api|worker`
 ```
 
@@ -71,6 +78,10 @@ Then check `http://localhost:8025` (Mailpit) or `docker compose logs worker`.
 - `from`, `to`: required, one address each, must parse as a bare addr-spec
   (display names belong in `.name`); `cc`, `bcc` optional.
 - `name` and `address` ≤ 254 characters (runes), `subject` ≤ 256 characters.
+- `tags` is optional; at most 5 entries.
+- `messageId`, `eventId` and `timestamp` are set by the API on every request;
+  values sent by a client are overwritten. `messageId` identifies the mail and is
+  shared by its accepted and processed events; `eventId` is per event.
 - At least one of `html` / `text` is required.
 - Whole request body ≤ 1 MB (`http.MaxBytesReader`, 413 over the limit).
 - `from` domain must be in `ALLOWED_SENDER_DOMAINS` (empty = any, the demo
@@ -93,6 +104,14 @@ Then check `http://localhost:8025` (Mailpit) or `docker compose logs worker`.
 - Sender allowlist is a plain domain list, not SES identity verification.
 - SMTP gives no message ID back and no bounce/complaint feedback.
 - Kafka message key is unset; one partition, so ordering is trivially preserved.
+- Join the two clickhouse tables on `messageId` (rows share it), not on
+  `eventId`. If the republish to `message-processed` fails it is logged and the
+  offset is still committed (the mail already went out), so a processed row can be
+  missing.
+- `clickhouse/init.sql` only runs while the data dir is empty, and docker's
+  anonymous volume keeps that dir across recreates — schema edits need
+  `docker compose down -v clickhouse` or a manual
+  `clickhouse-client < clickhouse/init.sql`.
 - No Message-ID header (server adds one), no DKIM/SPF, no bounce handling.
 - API returns 500 if Kafka is unreachable; no queue or retry.
 - `connect` streams and the worker both read `message-accepted` in different

@@ -75,12 +75,16 @@ services:
   connect:
     image: docker.redpanda.com/redpandadata/connect
     command: streams -o /configs/observability.yaml /configs/streams/*.yaml
+    depends_on:
+      - kafka
+      - clickhouse
     ports:
       - "4195:4195"
     volumes:
       - ./connect/configs/:/configs:ro
     environment:
       Kafka_Brokers: kafka:9093
+      ClickHouse_DSN: clickhouse://clickhouse:9000
 
   opensearch:
     image: opensearchproject/opensearch
@@ -109,6 +113,27 @@ services:
       - "9600:9600"  # required for Performance Analyzer
     healthcheck:
       test: [ "CMD", "curl", "-f", "http://localhost:9200" ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  clickhouse:
+    image: clickhouse/clickhouse-server
+    environment:
+      # the image refuses to start unless a user is configured; the demo has no auth
+      CLICKHOUSE_SKIP_USER_SETUP: 1
+    ports:
+      - "8123:8123" # HTTP interface
+      - "9000:9000" # native protocol
+    ulimits:
+      nofile:
+        soft: 262144
+        hard: 262144
+    volumes:
+      # the image runs *.sql from here on first start, i.e. while the data dir is empty
+      - ./clickhouse:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: [ "CMD", "clickhouse-client", "--query", "SELECT 1" ]
       interval: 10s
       timeout: 5s
       retries: 10

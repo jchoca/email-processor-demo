@@ -39,6 +39,8 @@ func sendTransactional(w http.ResponseWriter, r *http.Request, produce produceFu
 		http.Error(w, "invalid JSON body", http.StatusBadRequest)
 		return
 	}
+	// the payload goes out with ids and a timestamp the client cannot set
+	e.NewMessage()
 	if err := e.Validate(); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return

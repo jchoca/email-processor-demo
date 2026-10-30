@@ -9,6 +9,9 @@ import (
 // TopicAccepted is the topic the API produces to and the worker consumes.
 const TopicAccepted = "message-accepted"
 
+// TopicProcessed is the topic the worker produces to after a successful send.
+const TopicProcessed = "message-processed"
+
 // Brokers returns the Kafka brokers from KAFKA_BROKERS (comma separated).
 func Brokers() []string {
 	if b := os.Getenv("KAFKA_BROKERS"); b != "" {

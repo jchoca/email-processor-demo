@@ -2,16 +2,19 @@
 package email
 
 import (
+	"crypto/rand"
 	"errors"
 	"fmt"
 	"net/mail"
 	"strings"
+	"time"
 	"unicode/utf8"
 )
 
 const (
 	maxAddressLen = 254
 	maxSubjectLen = 256
+	maxTags       = 5
 )
 
 // Address is one mail address with an optional display name.
@@ -20,15 +23,43 @@ type Address struct {
 	Address string `json:"address"`
 }
 
-// Transactional is one request to send a transactional email.
+// Transactional is one request to send a transactional email. The ids and the
+// timestamp are stamped by the API, never by the client.
 type Transactional struct {
-	From    Address `json:"from"`
-	To      Address `json:"to"`
-	CC      Address `json:"cc"`
-	BCC     Address `json:"bcc"`
-	Subject string  `json:"subject"`
-	HTML    string  `json:"html"`
-	Text    string  `json:"text"`
+	MessageID string    `json:"messageId"`
+	EventID   string    `json:"eventId"`
+	Timestamp time.Time `json:"timestamp"`
+	From      Address   `json:"from"`
+	To        Address   `json:"to"`
+	CC        Address   `json:"cc"`
+	BCC       Address   `json:"bcc"`
+	Subject   string    `json:"subject"`
+	HTML      string    `json:"html"`
+	Text      string    `json:"text"`
+	Tags      []string  `json:"tags"`
+}
+
+// NewMessage starts the event chain for one request: the messageId is shared by
+// every event of that mail, while eventId and timestamp are per event.
+func (e *Transactional) NewMessage() {
+	e.MessageID = newEventID()
+	e.Stamp()
+}
+
+// Stamp gives the event a fresh id and a second-precision UTC timestamp. Each
+// hop (accepted, processed) stamps its own event under the same messageId.
+func (e *Transactional) Stamp() {
+	e.EventID = newEventID()
+	e.Timestamp = time.Now().UTC().Truncate(time.Second)
+}
+
+// newEventID returns a random UUIDv4.
+func newEventID() string {
+	var b [16]byte
+	rand.Read(b[:])         // never fails on supported platforms
+	b[6] = b[6]&0x0f | 0x40 // version 4
+	b[8] = b[8]&0x3f | 0x80 // RFC 4122 variant
+	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:16])
 }
 
 // Validate checks required fields, address syntax and length limits.
@@ -67,6 +98,9 @@ func (e Transactional) Validate() error {
 	}
 	if utf8.RuneCountInString(e.Subject) > maxSubjectLen {
 		return fmt.Errorf("subject must be %d characters or fewer", maxSubjectLen)
+	}
+	if len(e.Tags) > maxTags {
+		return fmt.Errorf("tags must be %d or fewer", maxTags)
 	}
 	return nil
 }

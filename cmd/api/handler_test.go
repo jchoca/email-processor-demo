@@ -14,6 +14,36 @@ import (
 
 var noProduce = func(context.Context, []byte) error { return nil }
 
+func TestSendTransactionalStampsEvent(t *testing.T) {
+	var produced [][]byte
+	h := routes(func(_ context.Context, value []byte) error {
+		produced = append(produced, value)
+		return nil
+	}, nil)
+	// ids and times sent by the client must not survive
+	body := `{"messageId":"client","eventId":"client","timestamp":"1999-01-01T00:00:00Z","from":` + addr("", "a@example.com") +
+		`,"to":` + addr("", "b@example.com") + `,"text":"hi"}`
+
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest("POST", "/v1/send-transactional", strings.NewReader(body)))
+	if rec.Code != http.StatusAccepted || len(produced) != 1 {
+		t.Fatalf("got %d, produced %d, want 202 and 1", rec.Code, len(produced))
+	}
+	var got email.Transactional
+	if err := json.Unmarshal(produced[0], &got); err != nil {
+		t.Fatalf("produced payload not JSON: %v", err)
+	}
+	if got.EventID == "" || got.EventID == "client" {
+		t.Errorf("eventId = %q, want a generated id", got.EventID)
+	}
+	if got.MessageID == "" || got.MessageID == "client" {
+		t.Errorf("messageId = %q, want a generated id", got.MessageID)
+	}
+	if got.Timestamp.Year() == 1999 || got.Timestamp.IsZero() {
+		t.Errorf("timestamp = %v, want the current time", got.Timestamp)
+	}
+}
+
 // addr builds the JSON object shape for from/to/cc/bcc.
 func addr(name, address string) string {
 	return `{"name":"` + name + `","address":"` + address + `"}`

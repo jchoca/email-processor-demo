@@ -50,6 +50,14 @@ func main() {
 	})
 	defer r.Close()
 
+	// the same event is republished once SMTP accepts it, stamped anew
+	w := &kafka.Writer{
+		Addr:         kafka.TCP(config.Brokers()...),
+		Topic:        config.TopicProcessed,
+		RequiredAcks: kafka.RequireAll,
+	}
+	defer w.Close()
+
 	slog.Info("consuming", "topic", config.TopicAccepted, "smtp", smtp.Addr, "tls", smtp.RequireTLS)
 	for {
 		m, err := r.FetchMessage(ctx)
@@ -66,7 +74,16 @@ func main() {
 			// unparseable or disallowed payloads never become sendable: drop
 			slog.Error("skip", "offset", m.Offset, "err", err)
 		} else {
-			deliver(ctx, e, smtp.Send) // retries transient failures until sent
+			if deliver(ctx, e, smtp.Send) { // retries transient failures until sent
+				// the processed event is its own event: fresh id and timestamp
+				e.Stamp()
+				payload, err := json.Marshal(e)
+				if err != nil {
+					slog.Error("marshal processed", "offset", m.Offset, "err", err)
+				} else if err := w.WriteMessages(ctx, kafka.Message{Value: payload}); err != nil {
+					slog.Error("publish", "topic", config.TopicProcessed, "err", err)
+				}
+			}
 		}
 		if ctx.Err() != nil {
 			return // no commit: the message is redelivered after restart
@@ -80,29 +97,30 @@ func main() {
 	}
 }
 
-// deliver sends one message: transient errors are retried with backoff, SMTP
-// 5xx responses are permanent and dropped so a bad message cannot block the topic.
-func deliver(ctx context.Context, e email.Transactional, send sendFunc) {
+// deliver sends one message and reports whether it went out: transient errors
+// are retried with backoff, SMTP 5xx responses are permanent and dropped so a
+// bad message cannot block the topic.
+func deliver(ctx context.Context, e email.Transactional, send sendFunc) bool {
 	msg, err := mailmsg.Build(e)
 	if err != nil {
 		slog.Error("skip", "err", err)
-		return
+		return false
 	}
 	rcpts := e.Recipients()
 	for attempt := 1; ; attempt++ {
 		err := send(e.From.Address, rcpts, msg)
 		if err == nil {
 			slog.Info("sent", "to", rcpts, "subject", e.Subject)
-			return
+			return true
 		}
 		if permanent(err) {
 			slog.Error("drop", "attempt", attempt, "err", err)
-			return
+			return false
 		}
 		slog.Error("send", "attempt", attempt, "err", err)
 		select {
 		case <-ctx.Done():
-			return
+			return false
 		case <-time.After(backoff(attempt)):
 		}
 	}

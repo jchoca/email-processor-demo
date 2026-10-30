@@ -6,31 +6,18 @@ input:
     topics:
       - message-accepted
 
-# pipeline:
-#   processors:
-#     - bloblang: |
-#         meta = deleted()
-
-#         root = {}
-#         root.timestamp = this.timestamp
-#         root.eventId = this.eventId
-#         root.accountId = this.accountId
-#         root.channelId = this.channelId
-#         root.messageId = this.messageId
-#         root.eventType = "MessageAccepted"
-
-#         root.payload = {}
-#         root.payload.eventType = "message-accepted"
-#         root.payload.timestamp = this.timestamp
-#         root.payload.messageId = this.messageId
-#         root.payload.channelId = this.channelId
-#         root.payload.mailType = this.mailType.lowercase()
-#         root.payload.recipients = this.recipients
-#         root.payload.subject = this.subject
-#         root.payload.tags = this.tags
-#         root.payload.metadata = this.metadata
-
 output:
-  label: ""
-  stdout:
-    codec: lines
+  sql_insert:
+    driver: clickhouse
+    dsn: ${ClickHouse_DSN}
+    table: message_accepted
+    columns: [ eventId, messageId, timestamp, tags ]
+    # eventId/timestamp come from the payload (RFC3339); older ones have none
+    args_mapping: |
+      let ts = this.timestamp
+      let t  = if $ts == null { now() } else { $ts.ts_parse("2006-01-02T15:04:05Z07:00") }
+      root = [ this.eventId.or(uuid_v4()), this.messageId.or(uuid_v4()), $t.ts_format("2006-01-02 15:04:05"), this.tags.or([]) ]
+    batching:
+      count: 1000
+      period: 1s
+    max_in_flight: 1
