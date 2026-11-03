@@ -78,13 +78,15 @@ services:
     depends_on:
       - kafka
       - clickhouse
+      - opensearch
     ports:
       - "4195:4195"
     volumes:
       - ./connect/configs/:/configs:ro
     environment:
       Kafka_Brokers: kafka:9093
-      ClickHouse_DSN: clickhouse://clickhouse:9000
+      ClickHouse_DSN: clickhouse://email-processor-demo:email-processor-demo@clickhouse:9000/email_processor_demo
+      OpenSearch_Urls: http://opensearch:9200
 
   opensearch:
     image: opensearchproject/opensearch
@@ -120,8 +122,10 @@ services:
   clickhouse:
     image: clickhouse/clickhouse-server
     environment:
-      # the image refuses to start unless a user is configured; the demo has no auth
-      CLICKHOUSE_SKIP_USER_SETUP: 1
+      # demo credentials; the user and the database are created on first start
+      CLICKHOUSE_USER: email-processor-demo
+      CLICKHOUSE_PASSWORD: email-processor-demo
+      CLICKHOUSE_DB: email_processor_demo
     ports:
       - "8123:8123" # HTTP interface
       - "9000:9000" # native protocol
@@ -133,10 +137,24 @@ services:
       # the image runs *.sql from here on first start, i.e. while the data dir is empty
       - ./clickhouse:/docker-entrypoint-initdb.d:ro
     healthcheck:
-      test: [ "CMD", "clickhouse-client", "--query", "SELECT 1" ]
+      test: [ "CMD", "clickhouse-client", "--user", "email-processor-demo", "--password", "email-processor-demo", "--query", "SELECT 1" ]
       interval: 10s
       timeout: 5s
       retries: 10
+
+  opensearch-bootstrap:
+    image: curlimages/curl
+    depends_on:
+      opensearch:
+        condition: service_healthy
+    entrypoint: [ "/bin/sh", "-c" ]
+    command: |
+      "
+      until curl -sf http://opensearch:9200 >/dev/null; do sleep 1; done
+      curl -fsS -X PUT http://opensearch:9200/_index_template/messages -H 'Content-Type: application/json' -d @/opensearch/template.json
+      "
+    volumes:
+      - ./opensearch:/opensearch:ro
 
   mailpit:
     image: axllent/mailpit

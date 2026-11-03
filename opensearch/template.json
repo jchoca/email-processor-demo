@@ -1,0 +1,42 @@
+{
+  "index_patterns": ["message-*"],
+  "template": {
+    "settings": {
+      "number_of_shards": 1,
+      "number_of_replicas": 0
+    },
+    "mappings": {
+      "properties": {
+        "messageId": { "type": "keyword" },
+        "eventId": { "type": "keyword" },
+        "timestamp": { "type": "date" },
+        "subject": { "type": "text", "fields": { "keyword": { "type": "keyword" } } },
+        "tags": { "type": "keyword" },
+        "from": {
+          "properties": {
+            "name": { "type": "text" },
+            "address": { "type": "keyword" }
+          }
+        },
+        "to": {
+          "properties": {
+            "name": { "type": "text" },
+            "address": { "type": "keyword" }
+          }
+        },
+        "cc": {
+          "properties": {
+            "name": { "type": "text" },
+            "address": { "type": "keyword" }
+          }
+        },
+        "bcc": {
+          "properties": {
+            "name": { "type": "text" },
+            "address": { "type": "keyword" }
+          }
+        }
+      }
+    }
+  }
+}

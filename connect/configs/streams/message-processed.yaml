@@ -6,18 +6,36 @@ input:
     topics:
       - message-processed
 
+pipeline:
+  processors:
+    # the body is not searchable, so it never leaves the pipeline
+    - mapping: |
+        root = this.without("text", "html")
+
 output:
-  sql_insert:
-    driver: clickhouse
-    dsn: ${ClickHouse_DSN}
-    table: message_processed
-    columns: [ eventId, messageId, timestamp, tags ]
-    # eventId/timestamp come from the payload (RFC3339); older ones have none
-    args_mapping: |
-      let ts = this.timestamp
-      let t  = if $ts == null { now() } else { $ts.ts_parse("2006-01-02T15:04:05Z07:00") }
-      root = [ this.eventId.or(uuid_v4()), this.messageId.or(uuid_v4()), $t.ts_format("2006-01-02 15:04:05"), this.tags.or([]) ]
-    batching:
-      count: 1000
-      period: 1s
-    max_in_flight: 1
+  broker:
+    pattern: fan_out
+    outputs:
+      - sql_insert:
+          driver: clickhouse
+          dsn: ${ClickHouse_DSN}
+          table: message_processed
+          columns: [ eventId, messageId, timestamp, tags ]
+          # eventId/timestamp come from the payload (RFC3339); older ones have none
+          args_mapping: |
+            let ts = this.timestamp
+            let t  = if $ts == null { now() } else { $ts.ts_parse("2006-01-02T15:04:05Z07:00") }
+            root = [ this.eventId.or(uuid_v4()), this.messageId.or(uuid_v4()), $t.ts_format("2006-01-02 15:04:05"), this.tags.or([]) ]
+          batching:
+            count: 1000
+            period: 1s
+          max_in_flight: 1
+      - opensearch:
+          urls:
+            - ${OpenSearch_Urls}
+          action: index
+          index: message-processed
+          id: ${! json("eventId") }
+          batching:
+            count: 100
+            period: 1s

@@ -22,6 +22,7 @@ client ──POST /v1/send-transactional──> cmd/api ──> kafka topic "mes
                        ├── cmd/worker ──> SMTP (Mailpit locally)
                        │        └────────> kafka topic "message-processed"
                        └── redpanda connect streams ──> clickhouse
+                                                   └──> opensearch
 ```
 
 - `cmd/api` stamps `messageId`, `eventId` and `timestamp` (UUIDv4s), validates the
@@ -30,8 +31,9 @@ client ──POST /v1/send-transactional──> cmd/api ──> kafka topic "mes
   then republishes the payload to `message-processed` stamped as its own event:
   fresh `eventId`, send-time `timestamp`, same `messageId`.
 - `connect/configs/streams/*.yaml` are redpanda connect pipelines that read the
-  topics and insert one row per message into clickhouse (`message_accepted` /
-  `message_processed`).
+  topics, drop the body (`text`/`html` never leave the pipeline) and fan out to
+  clickhouse (`message_accepted` / `message_processed` tables) and opensearch
+  (`message-accepted` / `message-processed` indices).
 - `mailpit` (`http://localhost:8025`) is the local SMTP sink; API is on `:8080`.
 
 ## Layout
@@ -44,9 +46,12 @@ internal/mailmsg/ MIME rendering (multipart/alternative, quoted-printable)
 internal/sender/  SMTP client: dial timeout, optional required STARTTLS, optional AUTH
 internal/config/  env config: PORT, KAFKA_BROKERS, SMTP_*, ALLOWED_SENDER_DOMAINS
 connect/         redpanda connect stream configs
-clickhouse/      init.sql, run once on first clickhouse start (message_accepted,
-                 message_processed tables)
-docker-compose.yml  kafka, kafka-bootstrap (topics), api, worker, mailpit, connect, opensearch, clickhouse
+clickhouse/      init.sql, run once on first clickhouse start (email_processor_demo
+                 database with message_accepted, message_processed tables)
+opensearch/      template.json, index template for message-* (loaded by the
+                 opensearch-bootstrap service)
+docker-compose.yml  kafka, kafka-bootstrap (topics), api, worker, mailpit, connect,
+                 opensearch, opensearch-bootstrap (index template), clickhouse
 Dockerfile       one image, `--build-arg CMD=api|worker`
 ```
 
@@ -59,6 +64,7 @@ go test ./...            # unit tests (no Kafka/SMTP needed)
 go vet ./... && gofmt -l .
 docker compose up -d --build kafka kafka-bootstrap api worker mailpit
 make up / make down      # same, via compose; down removes orphans
+make demo                # POST three sample messages to a running stack
 ```
 
 Send a sample request:
@@ -72,6 +78,15 @@ curl -X POST localhost:8080/v1/send-transactional -d '{
 ```
 
 Then check `http://localhost:8025` (Mailpit) or `docker compose logs worker`.
+
+Both events land in clickhouse and opensearch (body excluded):
+
+```
+curl -s 'localhost:9200/message-*/_search?q=subject:hello'
+curl -s 'localhost:9200/message-*/_search?q=tags:vip'
+curl -s localhost:9200/_cat/indices/message-*?v
+docker compose exec clickhouse clickhouse-client --database email_processor_demo --query 'SELECT * FROM message_accepted'
+```
 
 ## Payload rules (the contract to keep consistent)
 
@@ -108,10 +123,20 @@ Then check `http://localhost:8025` (Mailpit) or `docker compose logs worker`.
   `eventId`. If the republish to `message-processed` fails it is logged and the
   offset is still committed (the mail already went out), so a processed row can be
   missing.
+- ClickHouse runs with demo credentials from compose: user and password
+  `email-processor-demo`, database `email_processor_demo`. The database name uses
+  underscores because the image's entrypoint runs `CREATE DATABASE IF NOT EXISTS
+  $CLICKHOUSE_DB` unquoted, which fails on dashes. The image's own `users.d`
+  config removes the passwordless `default` user, so unauthenticated requests get
+  401. Any client (DataGrip, DSN) needs user, password and database explicitly.
 - `clickhouse/init.sql` only runs while the data dir is empty, and docker's
   anonymous volume keeps that dir across recreates — schema edits need
   `docker compose down -v clickhouse` or a manual
-  `clickhouse-client < clickhouse/init.sql`.
+  `clickhouse-client < clickhouse/init.sql`.- opensearch runs with security disabled, so `:9200` is open and unauthenticated.
+  Document `_id` is the `eventId`, so a redelivered message overwrites its doc
+  instead of duplicating it; the clickhouse tables will duplicate on redelivery.
+- The body is dropped in the connect pipeline, not by a mapping template, so a
+  consumer reading the Kafka topics directly still sees `text`/`html`.
 - No Message-ID header (server adds one), no DKIM/SPF, no bounce handling.
 - API returns 500 if Kafka is unreachable; no queue or retry.
 - `connect` streams and the worker both read `message-accepted` in different

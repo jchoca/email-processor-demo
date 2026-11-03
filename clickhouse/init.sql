@@ -1,4 +1,6 @@
-CREATE TABLE IF NOT EXISTS message_accepted
+CREATE DATABASE IF NOT EXISTS email_processor_demo;
+
+CREATE TABLE IF NOT EXISTS email_processor_demo.message_accepted
 (
     eventId   UUID,
     messageId UUID,
@@ -8,7 +10,7 @@ CREATE TABLE IF NOT EXISTS message_accepted
 ENGINE = MergeTree
 ORDER BY (timestamp, eventId);
 
-CREATE TABLE IF NOT EXISTS message_processed
+CREATE TABLE IF NOT EXISTS email_processor_demo.message_processed
 (
     eventId   UUID,
     messageId UUID,
