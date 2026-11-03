@@ -6,12 +6,6 @@ input:
     topics:
       - message-processed
 
-pipeline:
-  processors:
-    # the body is not searchable, so it never leaves the pipeline
-    - mapping: |
-        root = this.without("text", "html")
-
 output:
   broker:
     pattern: fan_out

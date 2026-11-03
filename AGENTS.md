@@ -31,9 +31,8 @@ client ──POST /v1/send-transactional──> cmd/api ──> kafka topic "mes
   then republishes the payload to `message-processed` stamped as its own event:
   fresh `eventId`, send-time `timestamp`, same `messageId`.
 - `connect/configs/streams/*.yaml` are redpanda connect pipelines that read the
-  topics, drop the body (`text`/`html` never leave the pipeline) and fan out to
-  clickhouse (`message_accepted` / `message_processed` tables) and opensearch
-  (`message-accepted` / `message-processed` indices).
+  topics and fan out to clickhouse (`message_accepted` / `message_processed`
+  tables) and opensearch (`message-accepted` / `message-processed` indices).
 - `mailpit` (`http://localhost:8025`) is the local SMTP sink; API is on `:8080`.
 
 ## Layout
@@ -80,7 +79,7 @@ curl -X POST localhost:8080/v1/send-transactional -d '{
 
 Then check `http://localhost:8025` (Mailpit) or `docker compose logs worker`.
 
-Both events land in clickhouse and opensearch (body excluded):
+Both events land in clickhouse (no body) and opensearch (body stored, not searchable):
 
 ```
 curl -s 'localhost:9200/message-*/_search?q=subject:hello'
@@ -135,11 +134,13 @@ docker compose exec clickhouse clickhouse-client --database email_processor_demo
 - `clickhouse/init.sql` only runs while the data dir is empty, and docker's
   anonymous volume keeps that dir across recreates — schema edits need
   `docker compose down -v clickhouse` or a manual
-  `clickhouse-client < clickhouse/init.sql`.- opensearch runs with security disabled, so `:9200` is open and unauthenticated.
+  `clickhouse-client < clickhouse/init.sql`.
+- opensearch runs with security disabled, so `:9200` is open and unauthenticated.
   Document `_id` is the `eventId`, so a redelivered message overwrites its doc
   instead of duplicating it; the clickhouse tables will duplicate on redelivery.
-- The body is dropped in the connect pipeline, not by a mapping template, so a
-  consumer reading the Kafka topics directly still sees `text`/`html`.
+- `text`/`html` are kept in opensearch `_source` but mapped `"index": false`, so
+  they come back in search hits yet a query on them matches nothing. Clickhouse
+  never gets the body because `sql_insert` only writes its listed columns.
 - No Message-ID header (server adds one), no DKIM/SPF, no bounce handling.
 - API returns 500 if Kafka is unreachable; no queue or retry.
 - `connect` streams and the worker both read `message-accepted` in different
