@@ -20,12 +20,13 @@ output:
           driver: clickhouse
           dsn: ${ClickHouse_DSN}
           table: message_processed
-          columns: [ eventId, messageId, timestamp, tags ]
-          # eventId/timestamp come from the payload (RFC3339); older ones have none
+          columns: [ eventId, messageId, accountId, timestamp, tags ]
+          # ids/timestamp come from the payload (RFC3339); older ones have none, and
+          # a missing accountId becomes the nil UUID rather than a made-up account
           args_mapping: |
             let ts = this.timestamp
             let t  = if $ts == null { now() } else { $ts.ts_parse("2006-01-02T15:04:05Z07:00") }
-            root = [ this.eventId.or(uuid_v4()), this.messageId.or(uuid_v4()), $t.ts_format("2006-01-02 15:04:05"), this.tags.or([]) ]
+            root = [ this.eventId.or(uuid_v4()), this.messageId.or(uuid_v4()), this.accountId.or("00000000-0000-0000-0000-000000000000"), $t.ts_format("2006-01-02 15:04:05"), this.tags.or([]) ]
           batching:
             count: 1000
             period: 1s

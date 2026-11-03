@@ -7,10 +7,11 @@ import (
 
 func valid() Transactional {
 	return Transactional{
-		From:    Address{Name: "Alice", Address: "a@example.com"},
-		To:      Address{Name: "Bob", Address: "b@example.com"},
-		Subject: "hi",
-		Text:    "hi",
+		AccountID: "0b6f1c1e-6f43-4c9e-9a8e-2f1d3b7a5c10",
+		From:      Address{Name: "Alice", Address: "a@example.com"},
+		To:        Address{Name: "Bob", Address: "b@example.com"},
+		Subject:   "hi",
+		Text:      "hi",
 	}
 }
 
@@ -48,6 +49,11 @@ func TestValidate(t *testing.T) {
 		mutate func(*Transactional)
 		want   string
 	}{
+		{"missing accountId", func(e *Transactional) { e.AccountID = "" }, "accountId must be a UUID"},
+		{"bad accountId", func(e *Transactional) { e.AccountID = "acct-123" }, "accountId must be a UUID"},
+		{"accountId without dashes", func(e *Transactional) {
+			e.AccountID = "0b6f1c1e6f434c9e9a8e2f1d3b7a5c10xxxx"
+		}, "accountId must be a UUID"},
 		{"missing from", func(e *Transactional) { e.From = Address{} }, "from.address is required"},
 		{"missing to", func(e *Transactional) { e.To = Address{} }, "to.address is required"},
 		{"blank from", func(e *Transactional) { e.From.Address = "  " }, "from.address is required"},

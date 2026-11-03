@@ -21,7 +21,7 @@ func TestSendTransactionalStampsEvent(t *testing.T) {
 		return nil
 	}, nil)
 	// ids and times sent by the client must not survive
-	body := `{"messageId":"client","eventId":"client","timestamp":"1999-01-01T00:00:00Z","from":` + addr("", "a@example.com") +
+	body := `{"accountId":"0b6f1c1e-6f43-4c9e-9a8e-2f1d3b7a5c10","messageId":"client","eventId":"client","timestamp":"1999-01-01T00:00:00Z","from":` + addr("", "a@example.com") +
 		`,"to":` + addr("", "b@example.com") + `,"text":"hi"}`
 
 	rec := httptest.NewRecorder()
@@ -38,6 +38,9 @@ func TestSendTransactionalStampsEvent(t *testing.T) {
 	}
 	if got.MessageID == "" || got.MessageID == "client" {
 		t.Errorf("messageId = %q, want a generated id", got.MessageID)
+	}
+	if got.AccountID != "0b6f1c1e-6f43-4c9e-9a8e-2f1d3b7a5c10" {
+		t.Errorf("accountId = %q, want the client's value kept", got.AccountID)
 	}
 	if got.Timestamp.Year() == 1999 || got.Timestamp.IsZero() {
 		t.Errorf("timestamp = %v, want the current time", got.Timestamp)
@@ -58,7 +61,7 @@ func TestHealthz(t *testing.T) {
 }
 
 func TestSendTransactional(t *testing.T) {
-	body := `{"from":` + addr("Alice", "a@example.com") + `,"to":` + addr("Bob", "b@example.com") +
+	body := `{"accountId":"0b6f1c1e-6f43-4c9e-9a8e-2f1d3b7a5c10","from":` + addr("Alice", "a@example.com") + `,"to":` + addr("Bob", "b@example.com") +
 		`,"cc":` + addr("", "") + `,"bcc":` + addr("", "") + `,"subject":"hi","html":"<p>hi</p>","text":"hi"}`
 	rec := httptest.NewRecorder()
 	routes(noProduce, nil).ServeHTTP(rec, httptest.NewRequest("POST", "/v1/send-transactional", strings.NewReader(body)))
@@ -75,7 +78,7 @@ func TestSendTransactional(t *testing.T) {
 	// old flat-string shape is no longer valid
 	rec = httptest.NewRecorder()
 	routes(noProduce, nil).ServeHTTP(rec, httptest.NewRequest("POST", "/v1/send-transactional",
-		strings.NewReader(`{"from":"a@example.com","to":"b@example.com","text":"hi"}`)))
+		strings.NewReader(`{"accountId":"0b6f1c1e-6f43-4c9e-9a8e-2f1d3b7a5c10","from":"a@example.com","to":"b@example.com","text":"hi"}`)))
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("got %d, want 400", rec.Code)
 	}
@@ -83,14 +86,14 @@ func TestSendTransactional(t *testing.T) {
 	// validation errors surface as 400
 	rec = httptest.NewRecorder()
 	routes(noProduce, nil).ServeHTTP(rec, httptest.NewRequest("POST", "/v1/send-transactional",
-		strings.NewReader(`{"from":`+addr("", "nope")+`,"to":`+addr("", "b@example.com")+`,"text":"hi"}`)))
+		strings.NewReader(`{"accountId":"0b6f1c1e-6f43-4c9e-9a8e-2f1d3b7a5c10","from":`+addr("", "nope")+`,"to":`+addr("", "b@example.com")+`,"text":"hi"}`)))
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("got %d, want 400", rec.Code)
 	}
 }
 
 func TestSendTransactionalBodyTooLarge(t *testing.T) {
-	body := `{"from":{"address":"a@example.com"},"to":{"address":"b@example.com"},"text":"` +
+	body := `{"accountId":"0b6f1c1e-6f43-4c9e-9a8e-2f1d3b7a5c10","from":{"address":"a@example.com"},"to":{"address":"b@example.com"},"text":"` +
 		strings.Repeat("a", maxBodyBytes) + `"}`
 	rec := httptest.NewRecorder()
 	routes(noProduce, nil).ServeHTTP(rec, httptest.NewRequest("POST", "/v1/send-transactional", strings.NewReader(body)))
@@ -106,7 +109,7 @@ func TestSendTransactionalProduces(t *testing.T) {
 		produced = append(produced, value)
 		return produceErr
 	}, nil)
-	body := `{"from":` + addr("Alice", "a@example.com") + `,"to":` + addr("", "b@example.com") + `,"subject":"hi","text":"hi"}`
+	body := `{"accountId":"0b6f1c1e-6f43-4c9e-9a8e-2f1d3b7a5c10","from":` + addr("Alice", "a@example.com") + `,"to":` + addr("", "b@example.com") + `,"subject":"hi","text":"hi"}`
 
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, httptest.NewRequest("POST", "/v1/send-transactional", strings.NewReader(body)))
@@ -126,7 +129,7 @@ func TestSendTransactionalProduces(t *testing.T) {
 
 	// invalid payload must not be produced
 	rec = httptest.NewRecorder()
-	h.ServeHTTP(rec, httptest.NewRequest("POST", "/v1/send-transactional", strings.NewReader(`{"from":`+addr("", "nope")+`,"to":`+addr("", "b@example.com")+`,"text":"hi"}`)))
+	h.ServeHTTP(rec, httptest.NewRequest("POST", "/v1/send-transactional", strings.NewReader(`{"accountId":"0b6f1c1e-6f43-4c9e-9a8e-2f1d3b7a5c10","from":`+addr("", "nope")+`,"to":`+addr("", "b@example.com")+`,"text":"hi"}`)))
 	if rec.Code != http.StatusBadRequest || len(produced) != 1 {
 		t.Fatalf("invalid: got %d produced, code %d", len(produced), rec.Code)
 	}
@@ -141,7 +144,7 @@ func TestSendTransactionalProduces(t *testing.T) {
 }
 
 func TestSendTransactionalSenderDomains(t *testing.T) {
-	body := `{"from":` + addr("Alice", "a@example.com") + `,"to":` + addr("", "b@example.com") + `,"text":"hi"}`
+	body := `{"accountId":"0b6f1c1e-6f43-4c9e-9a8e-2f1d3b7a5c10","from":` + addr("Alice", "a@example.com") + `,"to":` + addr("", "b@example.com") + `,"text":"hi"}`
 
 	rec := httptest.NewRecorder()
 	routes(noProduce, []string{"example.com"}).ServeHTTP(rec, httptest.NewRequest("POST", "/v1/send-transactional", strings.NewReader(body)))
@@ -156,7 +159,7 @@ func TestSendTransactionalSenderDomains(t *testing.T) {
 	}
 
 	// a verified domain also authorises its subdomains
-	sub := `{"from":` + addr("", "a@mail.example.com") + `,"to":` + addr("", "b@example.com") + `,"text":"hi"}`
+	sub := `{"accountId":"0b6f1c1e-6f43-4c9e-9a8e-2f1d3b7a5c10","from":` + addr("", "a@mail.example.com") + `,"to":` + addr("", "b@example.com") + `,"text":"hi"}`
 	rec = httptest.NewRecorder()
 	routes(noProduce, []string{"example.com"}).ServeHTTP(rec, httptest.NewRequest("POST", "/v1/send-transactional", strings.NewReader(sub)))
 	if rec.Code != http.StatusAccepted {

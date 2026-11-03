@@ -23,12 +23,13 @@ type Address struct {
 	Address string `json:"address"`
 }
 
-// Transactional is one request to send a transactional email. The ids and the
-// timestamp are stamped by the API, never by the client.
+// Transactional is one request to send a transactional email. The client sends
+// accountId; messageId, eventId and timestamp are stamped by the API.
 type Transactional struct {
 	MessageID string    `json:"messageId"`
 	EventID   string    `json:"eventId"`
 	Timestamp time.Time `json:"timestamp"`
+	AccountID string    `json:"accountId"`
 	From      Address   `json:"from"`
 	To        Address   `json:"to"`
 	CC        Address   `json:"cc"`
@@ -64,6 +65,9 @@ func newEventID() string {
 
 // Validate checks required fields, address syntax and length limits.
 func (e Transactional) Validate() error {
+	if !isUUID(e.AccountID) {
+		return errors.New("accountId must be a UUID")
+	}
 	for _, a := range []struct {
 		name     string
 		value    Address
@@ -103,6 +107,23 @@ func (e Transactional) Validate() error {
 		return fmt.Errorf("tags must be %d or fewer", maxTags)
 	}
 	return nil
+}
+
+// isUUID reports whether s is a hex UUID in the 8-4-4-4-12 form, any version.
+func isUUID(s string) bool {
+	if len(s) != 36 {
+		return false
+	}
+	for i, c := range s {
+		if i == 8 || i == 13 || i == 18 || i == 23 {
+			if c != '-' {
+				return false
+			}
+		} else if !strings.ContainsRune("0123456789abcdefABCDEF", c) {
+			return false
+		}
+	}
+	return true
 }
 
 // Recipients returns the SMTP envelope recipients: to, then cc, then bcc.

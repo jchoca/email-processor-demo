@@ -71,6 +71,7 @@ Send a sample request:
 
 ```
 curl -X POST localhost:8080/v1/send-transactional -d '{
+  "accountId": "0b6f1c1e-6f43-4c9e-9a8e-2f1d3b7a5c10",
   "from": {"name": "Alice", "address": "alice@x.com"},
   "to":   {"name": "Bob",   "address": "bob@x.com"},
   "subject": "hello", "text": "hi", "html": "<p>hi</p>"
@@ -90,6 +91,8 @@ docker compose exec clickhouse clickhouse-client --database email_processor_demo
 
 ## Payload rules (the contract to keep consistent)
 
+- `accountId`: required, a UUID in 8-4-4-4-12 hex form (any version, either case).
+  It is not checked against any account store.
 - `from`, `to`: required, one address each, must parse as a bare addr-spec
   (display names belong in `.name`); `cc`, `bcc` optional.
 - `name` and `address` ≤ 254 characters (runes), `subject` ≤ 256 characters.

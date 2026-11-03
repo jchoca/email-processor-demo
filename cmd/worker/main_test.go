@@ -12,7 +12,7 @@ import (
 	"example.com/email-processor/internal/email"
 )
 
-const validPayload = `{"from":{"name":"Alice","address":"a@example.com"},"to":{"name":"Bob","address":"b@example.com"},` +
+const validPayload = `{"accountId":"0b6f1c1e-6f43-4c9e-9a8e-2f1d3b7a5c10","from":{"name":"Alice","address":"a@example.com"},"to":{"name":"Bob","address":"b@example.com"},` +
 	`"cc":{"name":"","address":"c@example.com"},"bcc":{"name":"","address":"d@example.com"},"subject":"hi","text":"hi"}`
 
 func TestDecode(t *testing.T) {
@@ -26,8 +26,8 @@ func TestDecode(t *testing.T) {
 
 	tests := map[string]string{
 		"bad json":      `nope`,
-		"invalid email": `{"from":{"address":"nope"},"to":{"address":"b@example.com"},"text":"hi"}`,
-		"missing body":  `{"from":{"address":"a@example.com"},"to":{"address":"b@example.com"}}`,
+		"invalid email": `{"accountId":"0b6f1c1e-6f43-4c9e-9a8e-2f1d3b7a5c10","from":{"address":"nope"},"to":{"address":"b@example.com"},"text":"hi"}`,
+		"missing body":  `{"accountId":"0b6f1c1e-6f43-4c9e-9a8e-2f1d3b7a5c10","from":{"address":"a@example.com"},"to":{"address":"b@example.com"}}`,
 		"missing from":  `{"to":{"address":"b@example.com"},"text":"hi"}`,
 	}
 	for name, payload := range tests {

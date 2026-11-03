@@ -9,6 +9,7 @@
       "properties": {
         "messageId": { "type": "keyword" },
         "eventId": { "type": "keyword" },
+        "accountId": { "type": "keyword" },
         "timestamp": { "type": "date" },
         "subject": { "type": "text", "fields": { "keyword": { "type": "keyword" } } },
         "tags": { "type": "keyword" },
