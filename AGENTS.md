@@ -21,7 +21,7 @@ client ──POST /v1/send-transactional──> cmd/api ──> kafka topic "mes
                                                           │
                        ├── cmd/worker ──> SMTP (Mailpit locally)
                        │        └────────> kafka topic "message-processed"
-                       └── redpanda connect streams ──> clickhouse
+                       └── redpanda connect streams ──> clickhouse ──> grafana
                                                    └──> opensearch
 ```
 
@@ -34,6 +34,9 @@ client ──POST /v1/send-transactional──> cmd/api ──> kafka topic "mes
   topics and fan out to clickhouse (`message_accepted` / `message_processed`
   tables) and opensearch (`message-accepted` / `message-processed` indices).
 - `mailpit` (`http://localhost:8025`) is the local SMTP sink; API is on `:8080`.
+- `grafana` (`http://localhost:3000`, no login) charts throughput, latency,
+  backlog and per-account sends from clickhouse. Redpanda Console
+  (`http://localhost:8081`) shows topics and consumer group lag.
 
 ## Layout
 
@@ -49,8 +52,11 @@ clickhouse/      init.sql, run once on first clickhouse start (email_processor_d
                  database with message_accepted, message_processed tables)
 opensearch/      template.json, index template for message-* (loaded by the
                  opensearch-bootstrap service)
+grafana/         provisioned clickhouse datasource and the email-processor
+                 dashboard (edit dashboards/email-processor.json, not the UI copy)
 docker-compose.yml  kafka, kafka-bootstrap (topics), api, worker, mailpit, connect,
-                 opensearch, opensearch-bootstrap (index template), clickhouse
+                 opensearch, opensearch-bootstrap (index template), clickhouse,
+                 grafana, console (redpanda console)
 Dockerfile       one image, `--build-arg CMD=api|worker`
 ```
 
@@ -97,8 +103,8 @@ docker compose exec clickhouse clickhouse-client --database email_processor_demo
   (display names belong in `.name`). There is no cc/bcc; mail goes to `to` only.
 - `name` and `address` ≤ 254 characters (runes), `subject` ≤ 256 characters.
 - `tags` is optional; at most 5 entries.
-- `messageId`, `eventId` and `timestamp` are set by the API on every request;
-  values sent by a client are overwritten. `messageId` identifies the mail and is
+- `messageId`, `eventId` and `timestamp` (UTC, millisecond precision) are set by
+  the API on every request; values sent by a client are overwritten. `messageId` identifies the mail and is
   shared by its accepted and processed events; `eventId` is per event.
 - At least one of `html` / `text` is required.
 - Whole request body ≤ 1 MB (`http.MaxBytesReader`, 413 over the limit).
@@ -139,6 +145,10 @@ docker compose exec clickhouse clickhouse-client --database email_processor_demo
   anonymous volume keeps that dir across recreates — schema edits need
   `docker compose down -v clickhouse` or a manual
   `clickhouse-client < clickhouse/init.sql`.
+- grafana lets anonymous visitors in as Admin, and Redpanda Console has no auth.
+- The grafana backlog panel is accepted minus sent rows, so messages the worker
+  drops (invalid, SMTP 5xx) or fails to republish stay in it; Console's consumer
+  lag is the exact queue depth.
 - opensearch runs with security disabled, so `:9200` is open and unauthenticated.
   Document `_id` is the `eventId`, so a redelivered message overwrites its doc
   instead of duplicating it; the clickhouse tables will duplicate on redelivery.

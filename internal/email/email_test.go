@@ -3,6 +3,7 @@ package email
 import (
 	"strings"
 	"testing"
+	"time"
 )
 
 func valid() Transactional {
@@ -25,8 +26,8 @@ func TestStamp(t *testing.T) {
 	if eventID[14] != '4' || !strings.ContainsRune("89ab", rune(eventID[19])) {
 		t.Fatalf("%q is not a UUIDv4", eventID)
 	}
-	if e.Timestamp.Nanosecond() != 0 {
-		t.Fatalf("timestamp = %v, want second precision", e.Timestamp)
+	if e.Timestamp.Nanosecond()%int(time.Millisecond) != 0 {
+		t.Fatalf("timestamp = %v, want millisecond precision", e.Timestamp)
 	}
 
 	// the next hop mints a new event but keeps the message

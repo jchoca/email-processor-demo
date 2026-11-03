@@ -27,7 +27,7 @@ load:
 	@accounts=(0b6f1c1e-6f43-4c9e-9a8e-2f1d3b7a5c10 7d2e4a90-1c3b-4f5e-8a6d-9b0c1e2f3a4b); \
 	while true; do \
 	  acct=$${accounts[RANDOM % $${#accounts[@]}]}; \
-	  curl -s -o /dev/null -w '%{http_code}\n' -X POST localhost:8080/v1/send-transactional \
+	  curl -s -o /dev/null -X POST localhost:8080/v1/send-transactional \
 	    -d '{"accountId":"'$$acct'","from":{"address":"alice@example.com"},"to":{"address":"bob@example.com"},"subject":"load test","text":"hi","tags":["load"]}' & \
 	  sleep $(shell awk 'BEGIN{print 1/$(RATE)}'); \
 	done

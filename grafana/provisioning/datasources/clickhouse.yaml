@@ -1,0 +1,15 @@
+apiVersion: 1
+
+datasources:
+  - name: ClickHouse
+    type: grafana-clickhouse-datasource
+    uid: clickhouse
+    isDefault: true
+    jsonData:
+      host: clickhouse
+      port: 9000
+      protocol: native
+      username: email-processor-demo
+      defaultDatabase: email_processor_demo
+    secureJsonData:
+      password: email-processor-demo

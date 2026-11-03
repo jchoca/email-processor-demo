@@ -5,7 +5,7 @@ CREATE TABLE IF NOT EXISTS email_processor_demo.message_accepted
     eventId   UUID,
     messageId UUID,
     accountId UUID,
-    timestamp DateTime,
+    timestamp DateTime64(3),
     tags      Array(String)
 )
 ENGINE = MergeTree
@@ -16,7 +16,7 @@ CREATE TABLE IF NOT EXISTS email_processor_demo.message_processed
     eventId   UUID,
     messageId UUID,
     accountId UUID,
-    timestamp DateTime,
+    timestamp DateTime64(3),
     tags      Array(String)
 )
 ENGINE = MergeTree

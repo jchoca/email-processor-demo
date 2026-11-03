@@ -45,11 +45,11 @@ func (e *Transactional) NewMessage() {
 	e.Stamp()
 }
 
-// Stamp gives the event a fresh id and a second-precision UTC timestamp. Each
-// hop (accepted, processed) stamps its own event under the same messageId.
+// Stamp gives the event a fresh id and a millisecond-precision UTC timestamp.
+// Each hop (accepted, processed) stamps its own event under the same messageId.
 func (e *Transactional) Stamp() {
 	e.EventID = newEventID()
-	e.Timestamp = time.Now().UTC().Truncate(time.Second)
+	e.Timestamp = time.Now().UTC().Truncate(time.Millisecond)
 }
 
 // newEventID returns a random UUIDv4.

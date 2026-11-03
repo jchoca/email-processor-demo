@@ -1,0 +1,156 @@
+{
+  "uid": "email-processor",
+  "title": "Email processor",
+  "schemaVersion": 39,
+  "time": {
+    "from": "now-15m",
+    "to": "now"
+  },
+  "refresh": "5s",
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "Throughput",
+      "description": "Accepted requests and sent mails per second. Sent below accepted means the worker is falling behind.",
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse"
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 0,
+        "y": 0
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "suffix: msg/s",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse"
+          },
+          "editorType": "sql",
+          "format": 0,
+          "queryType": "timeseries",
+          "rawSql": "SELECT\n  $__timeInterval(timestamp) AS time,\n  countIf(kind = 'accepted') / $__interval_s AS accepted,\n  countIf(kind = 'processed') / $__interval_s AS sent\nFROM (SELECT timestamp, 'accepted' AS kind FROM message_accepted UNION ALL SELECT timestamp, 'processed' AS kind FROM message_processed)\nWHERE $__timeFilter(timestamp)\nGROUP BY time\nORDER BY time"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "Latency, accepted to sent",
+      "description": "Time from the API accepting a message to the worker handing it to SMTP, by when it was sent.",
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse"
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 12,
+        "y": 0
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse"
+          },
+          "editorType": "sql",
+          "format": 0,
+          "queryType": "timeseries",
+          "rawSql": "SELECT\n  $__timeInterval(p.timestamp) AS time,\n  quantile(0.5)(dateDiff('millisecond', a.timestamp, p.timestamp)) AS p50,\n  quantile(0.95)(dateDiff('millisecond', a.timestamp, p.timestamp)) AS p95,\n  max(dateDiff('millisecond', a.timestamp, p.timestamp)) AS max\nFROM message_processed AS p\nINNER JOIN message_accepted AS a ON a.messageId = p.messageId\nWHERE $__timeFilter(p.timestamp)\nGROUP BY time\nORDER BY time"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "Backlog",
+      "description": "Accepted minus sent, counted over all history. Dropped messages (invalid, SMTP 5xx) never get a sent row, so they stay in this count.",
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse"
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 0,
+        "y": 9
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse"
+          },
+          "editorType": "sql",
+          "format": 0,
+          "queryType": "timeseries",
+          "rawSql": "SELECT time, backlog\nFROM (\n  SELECT time, sum(delta) OVER (ORDER BY time) AS backlog\n  FROM (\n    SELECT $__timeInterval(timestamp) AS time, sum(if(kind = 'accepted', 1, -1)) AS delta\n    FROM (SELECT timestamp, 'accepted' AS kind FROM message_accepted UNION ALL SELECT timestamp, 'processed' AS kind FROM message_processed)\n    GROUP BY time\n  )\n)\nWHERE $__timeFilter(time)\nORDER BY time"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "Sent per account",
+      "description": "Mails sent per second, one line per accountId.",
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse"
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 12,
+        "y": 9
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "suffix: msg/s",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse"
+          },
+          "editorType": "sql",
+          "format": 0,
+          "queryType": "timeseries",
+          "rawSql": "SELECT\n  $__timeInterval(timestamp) AS time,\n  toString(accountId) AS account,\n  count() / $__interval_s AS sent\nFROM message_processed\nWHERE $__timeFilter(timestamp)\nGROUP BY time, account\nORDER BY time"
+        }
+      ]
+    }
+  ]
+}
