@@ -25,8 +25,6 @@ func TestBuild(t *testing.T) {
 	e := email.Transactional{
 		From:    email.Address{Name: "Alice", Address: "a@example.com"},
 		To:      email.Address{Name: "Bob", Address: "b@example.com"},
-		CC:      email.Address{Name: "Carol", Address: "c@example.com"},
-		BCC:     email.Address{Name: "Dave", Address: "d@example.com"},
 		Subject: "héllo",
 		HTML:    "<p>hi</p>",
 		Text:    "hi\n",
@@ -42,12 +40,6 @@ func TestBuild(t *testing.T) {
 	}
 	if from := mustParseAddress(t, msg.Header.Get("From")); from.Name != "Alice" || from.Address != "a@example.com" {
 		t.Errorf("From = %+v", from)
-	}
-	if cc := mustParseAddress(t, msg.Header.Get("Cc")); cc.Name != "Carol" || cc.Address != "c@example.com" {
-		t.Errorf("Cc = %+v", cc)
-	}
-	if strings.Contains(string(raw), "Dave") || msg.Header.Get("Bcc") != "" {
-		t.Error("bcc must not appear in headers")
 	}
 	if got, want := msg.Header.Get("Subject"), "=?utf-8?q?h=C3=A9llo?="; got != want {
 		t.Errorf("Subject = %q, want %q", got, want)

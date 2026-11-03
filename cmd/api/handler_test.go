@@ -47,7 +47,7 @@ func TestSendTransactionalStampsEvent(t *testing.T) {
 	}
 }
 
-// addr builds the JSON object shape for from/to/cc/bcc.
+// addr builds the JSON object shape for from/to.
 func addr(name, address string) string {
 	return `{"name":"` + name + `","address":"` + address + `"}`
 }
@@ -62,7 +62,7 @@ func TestHealthz(t *testing.T) {
 
 func TestSendTransactional(t *testing.T) {
 	body := `{"accountId":"0b6f1c1e-6f43-4c9e-9a8e-2f1d3b7a5c10","from":` + addr("Alice", "a@example.com") + `,"to":` + addr("Bob", "b@example.com") +
-		`,"cc":` + addr("", "") + `,"bcc":` + addr("", "") + `,"subject":"hi","html":"<p>hi</p>","text":"hi"}`
+		`,"subject":"hi","html":"<p>hi</p>","text":"hi"}`
 	rec := httptest.NewRecorder()
 	routes(noProduce, nil).ServeHTTP(rec, httptest.NewRequest("POST", "/v1/send-transactional", strings.NewReader(body)))
 	if rec.Code != http.StatusAccepted {

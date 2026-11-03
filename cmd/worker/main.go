@@ -106,7 +106,7 @@ func deliver(ctx context.Context, e email.Transactional, send sendFunc) bool {
 		slog.Error("skip", "err", err)
 		return false
 	}
-	rcpts := e.Recipients()
+	rcpts := []string{e.To.Address}
 	for attempt := 1; ; attempt++ {
 		err := send(e.From.Address, rcpts, msg)
 		if err == nil {

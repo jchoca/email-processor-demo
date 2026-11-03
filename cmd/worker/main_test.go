@@ -13,7 +13,7 @@ import (
 )
 
 const validPayload = `{"accountId":"0b6f1c1e-6f43-4c9e-9a8e-2f1d3b7a5c10","from":{"name":"Alice","address":"a@example.com"},"to":{"name":"Bob","address":"b@example.com"},` +
-	`"cc":{"name":"","address":"c@example.com"},"bcc":{"name":"","address":"d@example.com"},"subject":"hi","text":"hi"}`
+	`"subject":"hi","text":"hi"}`
 
 func TestDecode(t *testing.T) {
 	e, err := decode([]byte(validPayload), nil)
@@ -66,14 +66,11 @@ func TestDeliver(t *testing.T) {
 	if gotFrom != "a@example.com" {
 		t.Errorf("from = %q", gotFrom)
 	}
-	if len(gotTo) != 3 || gotTo[0] != "b@example.com" || gotTo[1] != "c@example.com" || gotTo[2] != "d@example.com" {
-		t.Errorf("envelope recipients = %v, want to+cc+bcc", gotTo)
+	if len(gotTo) != 1 || gotTo[0] != "b@example.com" {
+		t.Errorf("envelope recipients = %v, want [b@example.com]", gotTo)
 	}
 	if !strings.Contains(string(gotMsg), "Subject: hi") || !strings.Contains(string(gotMsg), "<a@example.com>") {
 		t.Errorf("message missing headers:\n%s", gotMsg)
-	}
-	if strings.Contains(string(gotMsg), "d@example.com") {
-		t.Error("bcc recipient leaked into message headers")
 	}
 
 	// a failing send keeps retrying until the context is cancelled

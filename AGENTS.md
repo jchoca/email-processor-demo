@@ -41,7 +41,7 @@ client ──POST /v1/send-transactional──> cmd/api ──> kafka topic "mes
 ```
 cmd/api/         HTTP server + handler + tests
 cmd/worker/      Kafka consumer, SMTP sender, retry loop + tests
-internal/email/  Transactional/Address types, NewMessage()/Stamp(), validation, Recipients()
+internal/email/  Transactional/Address types, NewMessage()/Stamp(), validation
 internal/mailmsg/ MIME rendering (multipart/alternative, quoted-printable)
 internal/sender/  SMTP client: dial timeout, optional required STARTTLS, optional AUTH
 internal/config/  env config: PORT, KAFKA_BROKERS, SMTP_*, ALLOWED_SENDER_DOMAINS
@@ -94,7 +94,7 @@ docker compose exec clickhouse clickhouse-client --database email_processor_demo
 - `accountId`: required, a UUID in 8-4-4-4-12 hex form (any version, either case).
   It is not checked against any account store.
 - `from`, `to`: required, one address each, must parse as a bare addr-spec
-  (display names belong in `.name`); `cc`, `bcc` optional.
+  (display names belong in `.name`). There is no cc/bcc; mail goes to `to` only.
 - `name` and `address` ≤ 254 characters (runes), `subject` ≤ 256 characters.
 - `tags` is optional; at most 5 entries.
 - `messageId`, `eventId` and `timestamp` are set by the API on every request;
@@ -152,6 +152,5 @@ docker compose exec clickhouse clickhouse-client --database email_processor_demo
   test; glue code does not.
 - Prefer stdlib; the only direct dependency is `github.com/segmentio/kafka-go`.
   Don't add dependencies for a few lines.
-- Comment only the why that the code cannot show (e.g. why Bcc is header-less, why
-  commits are explicit).
+- Comment only the why that the code cannot show (e.g. why commits are explicit).
 - Update this file if you change architecture, commands or the payload contract.

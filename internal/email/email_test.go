@@ -59,8 +59,6 @@ func TestValidate(t *testing.T) {
 		{"blank from", func(e *Transactional) { e.From.Address = "  " }, "from.address is required"},
 		{"bad from", func(e *Transactional) { e.From.Address = "nope" }, "from.address is not a valid"},
 		{"bad to", func(e *Transactional) { e.To.Address = "nope" }, "to.address is not a valid"},
-		{"bad cc", func(e *Transactional) { e.CC.Address = "nope" }, "cc.address is not a valid"},
-		{"bad bcc", func(e *Transactional) { e.BCC.Address = "nope" }, "bcc.address is not a valid"},
 		{"display name in address", func(e *Transactional) {
 			e.From.Address = "Alice <a@example.com>"
 		}, "from.address is not a valid"},
@@ -68,9 +66,6 @@ func TestValidate(t *testing.T) {
 		{"long address", func(e *Transactional) {
 			e.From.Address = strings.Repeat("a", 243) + "@example.com"
 		}, "from.address must be 254"},
-		{"long cc name without address", func(e *Transactional) {
-			e.CC = Address{Name: strings.Repeat("x", 255)}
-		}, "cc.name must be 254"},
 		{"no body", func(e *Transactional) { e.HTML, e.Text = "", "" }, "html or text body is required"},
 		{"blank body", func(e *Transactional) { e.HTML, e.Text = " ", " " }, "html or text body is required"},
 		{"long subject", func(e *Transactional) { e.Subject = strings.Repeat("é", 257) }, "subject must be 256"},

@@ -32,8 +32,6 @@ type Transactional struct {
 	AccountID string    `json:"accountId"`
 	From      Address   `json:"from"`
 	To        Address   `json:"to"`
-	CC        Address   `json:"cc"`
-	BCC       Address   `json:"bcc"`
 	Subject   string    `json:"subject"`
 	HTML      string    `json:"html"`
 	Text      string    `json:"text"`
@@ -69,14 +67,11 @@ func (e Transactional) Validate() error {
 		return errors.New("accountId must be a UUID")
 	}
 	for _, a := range []struct {
-		name     string
-		value    Address
-		required bool
+		name  string
+		value Address
 	}{
-		{"from", e.From, true},
-		{"to", e.To, true},
-		{"cc", e.CC, false},
-		{"bcc", e.BCC, false},
+		{"from", e.From},
+		{"to", e.To},
 	} {
 		addr := strings.TrimSpace(a.value.Address)
 		if utf8.RuneCountInString(a.value.Name) > maxAddressLen {
@@ -86,10 +81,7 @@ func (e Transactional) Validate() error {
 			return fmt.Errorf("%s.address must be %d characters or fewer", a.name, maxAddressLen)
 		}
 		if addr == "" {
-			if a.required {
-				return fmt.Errorf("%s.address is required", a.name)
-			}
-			continue
+			return fmt.Errorf("%s.address is required", a.name)
 		}
 		// reject display names here; they belong in .name
 		parsed, err := mail.ParseAddress(addr)
@@ -124,18 +116,6 @@ func isUUID(s string) bool {
 		}
 	}
 	return true
-}
-
-// Recipients returns the SMTP envelope recipients: to, then cc, then bcc.
-func (e Transactional) Recipients() []string {
-	rcpts := []string{e.To.Address}
-	if e.CC.Address != "" {
-		rcpts = append(rcpts, e.CC.Address)
-	}
-	if e.BCC.Address != "" {
-		rcpts = append(rcpts, e.BCC.Address)
-	}
-	return rcpts
 }
 
 // SenderAllowed reports whether the from domain is one of allowed (a domain

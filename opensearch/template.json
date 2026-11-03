@@ -24,18 +24,6 @@
             "name": { "type": "text" },
             "address": { "type": "keyword" }
           }
-        },
-        "cc": {
-          "properties": {
-            "name": { "type": "text" },
-            "address": { "type": "keyword" }
-          }
-        },
-        "bcc": {
-          "properties": {
-            "name": { "type": "text" },
-            "address": { "type": "keyword" }
-          }
         }
       }
     }

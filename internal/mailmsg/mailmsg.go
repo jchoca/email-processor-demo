@@ -17,8 +17,6 @@ import (
 
 // Build renders e as an RFC 5322 / MIME message with a multipart/alternative
 // body holding whichever of the text and html parts are present.
-// Bcc is left out of the headers on purpose: those recipients only belong in
-// the SMTP envelope.
 func Build(e email.Transactional) ([]byte, error) {
 	text := strings.TrimSpace(e.Text) != ""
 	html := strings.TrimSpace(e.HTML) != ""
@@ -32,16 +30,11 @@ func Build(e email.Transactional) ([]byte, error) {
 	headers := []string{
 		"From: " + formatAddress(e.From),
 		"To: " + formatAddress(e.To),
-	}
-	if e.CC.Address != "" {
-		headers = append(headers, "Cc: "+formatAddress(e.CC))
-	}
-	headers = append(headers,
-		"Subject: "+mime.QEncoding.Encode("utf-8", e.Subject),
-		"Date: "+time.Now().Format(time.RFC1123Z),
+		"Subject: " + mime.QEncoding.Encode("utf-8", e.Subject),
+		"Date: " + time.Now().Format(time.RFC1123Z),
 		"MIME-Version: 1.0",
-		`Content-Type: multipart/alternative; boundary="`+mw.Boundary()+`"`,
-	)
+		`Content-Type: multipart/alternative; boundary="` + mw.Boundary() + `"`,
+	}
 	for _, h := range headers {
 		b.WriteString(h + "\r\n")
 	}
