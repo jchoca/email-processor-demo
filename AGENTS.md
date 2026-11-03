@@ -64,6 +64,7 @@ go vet ./... && gofmt -l .
 docker compose up -d --build kafka kafka-bootstrap api worker mailpit
 make up / make down      # same, via compose; down removes orphans
 make demo                # POST three sample messages to a running stack
+make load RATE=5         # steady stream of requests per second until Ctrl-C
 ```
 
 Send a sample request:
@@ -116,8 +117,11 @@ docker compose exec clickhouse clickhouse-client --database email_processor_demo
 - Transient SMTP errors (4xx, network) retry forever with exponential backoff
   (1s doubling to 1 min), blocking the partition; SMTP 5xx is logged and dropped as
   permanent, as are unparseable or disallowed payloads. No DLQ.
-- Commits are explicit: the worker uses `FetchMessage` + `CommitMessages` because
-  kafka-go's `ReadMessage` commits *before* the message is processed.
+- Commits are explicit: the worker disables franz-go's autocommit, which commits
+  on a timer whether or not the message was sent, and calls `CommitRecords` after
+  each delivery.
+- Produces give up after 10s (`RecordDeliveryTimeout`); franz-go otherwise retries
+  forever, and the API could never answer 500.
 - Sender allowlist is a plain domain list, not SES identity verification.
 - SMTP gives no message ID back and no bounce/complaint feedback.
 - Kafka message key is unset; one partition, so ordering is trivially preserved.
@@ -151,7 +155,7 @@ docker compose exec clickhouse clickhouse-client --database email_processor_demo
 - Keep diffs small and readable; the blog explains this code.
 - New non-trivial logic (branching, parsing, retry/commit behavior) gets a small
   test; glue code does not.
-- Prefer stdlib; the only direct dependency is `github.com/segmentio/kafka-go`.
+- Prefer stdlib; the only direct dependency is `github.com/twmb/franz-go`.
   Don't add dependencies for a few lines.
 - Comment only the why that the code cannot show (e.g. why commits are explicit).
 - Update this file if you change architecture, commands or the payload contract.

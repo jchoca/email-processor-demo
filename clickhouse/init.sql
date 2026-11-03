@@ -9,7 +9,7 @@ CREATE TABLE IF NOT EXISTS email_processor_demo.message_accepted
     tags      Array(String)
 )
 ENGINE = MergeTree
-ORDER BY (timestamp, eventId);
+ORDER BY (accountId, timestamp);
 
 CREATE TABLE IF NOT EXISTS email_processor_demo.message_processed
 (
@@ -20,7 +20,7 @@ CREATE TABLE IF NOT EXISTS email_processor_demo.message_processed
     tags      Array(String)
 )
 ENGINE = MergeTree
-ORDER BY (timestamp, eventId);
+ORDER BY (accountId, timestamp);
 
 CREATE TABLE IF NOT EXISTS email_processor_demo.sums_by_hour (
     timestamp DateTime,

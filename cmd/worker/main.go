@@ -18,7 +18,7 @@ import (
 	"example.com/email-processor/internal/mailmsg"
 	"example.com/email-processor/internal/sender"
 
-	"github.com/segmentio/kafka-go"
+	"github.com/twmb/franz-go/pkg/kgo"
 )
 
 // sendFunc delivers one MIME message to the envelope recipients.
@@ -41,58 +41,58 @@ func main() {
 	}
 	allowedSenders := config.SenderDomains()
 
-	// FetchMessage does not commit, and ReadMessage would commit before the
-	// message is sent, so offsets move forward only after delivery.
-	r := kafka.NewReader(kafka.ReaderConfig{
-		Brokers: config.Brokers(),
-		Topic:   config.TopicAccepted,
-		GroupID: "worker",
-	})
-	defer r.Close()
-
-	// the same event is republished once SMTP accepts it, stamped anew
-	w := &kafka.Writer{
-		Addr:         kafka.TCP(config.Brokers()...),
-		Topic:        config.TopicProcessed,
-		RequiredAcks: kafka.RequireAll,
+	// one client consumes accepted and produces processed events. Autocommit
+	// would commit on a timer, before a message may be sent, so offsets move
+	// forward only through CommitRecords after delivery.
+	kc, err := kgo.NewClient(
+		kgo.SeedBrokers(config.Brokers()...),
+		kgo.ConsumerGroup("worker"),
+		kgo.ConsumeTopics(config.TopicAccepted),
+		kgo.DisableAutoCommit(),
+		kgo.DefaultProduceTopic(config.TopicProcessed),
+		// records retry forever by default; give up and log instead
+		kgo.RecordDeliveryTimeout(10*time.Second),
+	)
+	if err != nil {
+		slog.Error("kafka", "err", err)
+		os.Exit(1)
 	}
-	defer w.Close()
+	defer kc.Close()
 
 	slog.Info("consuming", "topic", config.TopicAccepted, "smtp", smtp.Addr, "tls", smtp.RequireTLS)
 	for {
-		m, err := r.FetchMessage(ctx)
-		if err != nil {
-			if ctx.Err() != nil {
-				return
-			}
-			slog.Error("read", "err", err)
-			continue
+		fetches := kc.PollFetches(ctx)
+		if ctx.Err() != nil {
+			return
 		}
+		fetches.EachError(func(topic string, partition int32, err error) {
+			slog.Error("read", "topic", topic, "partition", partition, "err", err)
+		})
 
-		e, err := decode(m.Value, allowedSenders)
-		if err != nil {
-			// unparseable or disallowed payloads never become sendable: drop
-			slog.Error("skip", "offset", m.Offset, "err", err)
-		} else {
-			if deliver(ctx, e, smtp.Send) { // retries transient failures until sent
+		for _, r := range fetches.Records() {
+			e, err := decode(r.Value, allowedSenders)
+			if err != nil {
+				// unparseable or disallowed payloads never become sendable: drop
+				slog.Error("skip", "offset", r.Offset, "err", err)
+			} else if deliver(ctx, e, smtp.Send) { // retries transient failures until sent
 				// the processed event is its own event: fresh id and timestamp
 				e.Stamp()
 				payload, err := json.Marshal(e)
 				if err != nil {
-					slog.Error("marshal processed", "offset", m.Offset, "err", err)
-				} else if err := w.WriteMessages(ctx, kafka.Message{Value: payload}); err != nil {
+					slog.Error("marshal processed", "offset", r.Offset, "err", err)
+				} else if err := kc.ProduceSync(ctx, &kgo.Record{Value: payload}).FirstErr(); err != nil {
 					slog.Error("publish", "topic", config.TopicProcessed, "err", err)
 				}
 			}
-		}
-		if ctx.Err() != nil {
-			return // no commit: the message is redelivered after restart
-		}
-		if err := r.CommitMessages(ctx, m); err != nil {
 			if ctx.Err() != nil {
-				return
+				return // no commit: the message is redelivered after restart
 			}
-			slog.Error("commit", "offset", m.Offset, "err", err)
+			if err := kc.CommitRecords(ctx, r); err != nil {
+				if ctx.Err() != nil {
+					return
+				}
+				slog.Error("commit", "offset", r.Offset, "err", err)
+			}
 		}
 	}
 }

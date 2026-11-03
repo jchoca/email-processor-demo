@@ -12,21 +12,26 @@ import (
 
 	"example.com/email-processor/internal/config"
 
-	"github.com/segmentio/kafka-go"
+	"github.com/twmb/franz-go/pkg/kgo"
 )
 
 func main() {
-	kw := &kafka.Writer{
-		Addr:         kafka.TCP(config.Brokers()...),
-		Topic:        config.TopicAccepted,
-		RequiredAcks: kafka.RequireAll,
+	kc, err := kgo.NewClient(
+		kgo.SeedBrokers(config.Brokers()...),
+		kgo.DefaultProduceTopic(config.TopicAccepted),
+		// records retry forever by default; give up so the API can answer 500
+		kgo.RecordDeliveryTimeout(10*time.Second),
+	)
+	if err != nil {
+		slog.Error("kafka", "err", err)
+		os.Exit(1)
 	}
-	defer kw.Close()
+	defer kc.Close()
 
 	srv := &http.Server{
 		Addr: ":" + config.Port(),
 		Handler: routes(func(ctx context.Context, value []byte) error {
-			return kw.WriteMessages(ctx, kafka.Message{Value: value})
+			return kc.ProduceSync(ctx, &kgo.Record{Value: value}).FirstErr()
 		}, config.SenderDomains()),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
