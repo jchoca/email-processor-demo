@@ -44,7 +44,7 @@ func main() {
 	// one client consumes accepted and produces processed events. Autocommit
 	// would commit on a timer, before a message may be sent, so offsets move
 	// forward only through CommitRecords after delivery.
-	kc, err := kgo.NewClient(
+	kafkaClient, err := kgo.NewClient(
 		kgo.SeedBrokers(config.Brokers()...),
 		kgo.ConsumerGroup("worker"),
 		kgo.ConsumeTopics(config.TopicAccepted),
@@ -57,11 +57,11 @@ func main() {
 		slog.Error("kafka", "err", err)
 		os.Exit(1)
 	}
-	defer kc.Close()
+	defer kafkaClient.Close()
 
 	slog.Info("consuming", "topic", config.TopicAccepted, "smtp", smtp.Addr, "tls", smtp.RequireTLS)
 	for {
-		fetches := kc.PollFetches(ctx)
+		fetches := kafkaClient.PollFetches(ctx)
 		if ctx.Err() != nil {
 			return
 		}
@@ -69,29 +69,29 @@ func main() {
 			slog.Error("read", "topic", topic, "partition", partition, "err", err)
 		})
 
-		for _, r := range fetches.Records() {
-			e, err := decode(r.Value, allowedSenders)
+		for _, record := range fetches.Records() {
+			message, err := decode(record.Value, allowedSenders)
 			if err != nil {
 				// unparseable or disallowed payloads never become sendable: drop
-				slog.Error("skip", "offset", r.Offset, "err", err)
-			} else if deliver(ctx, e, smtp.Send) { // retries transient failures until sent
+				slog.Error("skip", "offset", record.Offset, "err", err)
+			} else if deliver(ctx, message, smtp.Send) { // retries transient failures until sent
 				// the processed event is its own event: fresh id and timestamp
-				e.Stamp()
-				payload, err := json.Marshal(e)
+				message.Stamp()
+				payload, err := json.Marshal(message)
 				if err != nil {
-					slog.Error("marshal processed", "offset", r.Offset, "err", err)
-				} else if err := kc.ProduceSync(ctx, &kgo.Record{Value: payload}).FirstErr(); err != nil {
+					slog.Error("marshal processed", "offset", record.Offset, "err", err)
+				} else if err := kafkaClient.ProduceSync(ctx, &kgo.Record{Value: payload}).FirstErr(); err != nil {
 					slog.Error("publish", "topic", config.TopicProcessed, "err", err)
 				}
 			}
 			if ctx.Err() != nil {
 				return // no commit: the message is redelivered after restart
 			}
-			if err := kc.CommitRecords(ctx, r); err != nil {
+			if err := kafkaClient.CommitRecords(ctx, record); err != nil {
 				if ctx.Err() != nil {
 					return
 				}
-				slog.Error("commit", "offset", r.Offset, "err", err)
+				slog.Error("commit", "offset", record.Offset, "err", err)
 			}
 		}
 	}
@@ -100,17 +100,17 @@ func main() {
 // deliver sends one message and reports whether it went out: transient errors
 // are retried with backoff, SMTP 5xx responses are permanent and dropped so a
 // bad message cannot block the topic.
-func deliver(ctx context.Context, e email.Transactional, send sendFunc) bool {
-	msg, err := mailmsg.Build(e)
+func deliver(ctx context.Context, message email.Transactional, send sendFunc) bool {
+	msg, err := mailmsg.Build(message)
 	if err != nil {
 		slog.Error("skip", "err", err)
 		return false
 	}
-	rcpts := []string{e.To.Address}
+	rcpts := []string{message.To.Address}
 	for attempt := 1; ; attempt++ {
-		err := send(e.From.Address, rcpts, msg)
+		err := send(message.From.Address, rcpts, msg)
 		if err == nil {
-			slog.Info("sent", "to", rcpts, "subject", e.Subject)
+			slog.Info("sent", "to", rcpts, "subject", message.Subject)
 			return true
 		}
 		if permanent(err) {
@@ -128,8 +128,8 @@ func deliver(ctx context.Context, e email.Transactional, send sendFunc) bool {
 
 // permanent reports whether err is an SMTP 5xx reply, which retrying cannot fix.
 func permanent(err error) bool {
-	var tp *textproto.Error
-	return errors.As(err, &tp) && tp.Code >= 500 && tp.Code < 600
+	var smtpErr *textproto.Error
+	return errors.As(err, &smtpErr) && smtpErr.Code >= 500 && smtpErr.Code < 600
 }
 
 // backoff doubles the wait per attempt, capped at retryMax.
@@ -137,23 +137,23 @@ func backoff(attempt int) time.Duration {
 	if attempt > 16 {
 		return retryMax
 	}
-	if d := retryBase << (attempt - 1); d > 0 && d < retryMax {
-		return d
+	if delay := retryBase << (attempt - 1); delay > 0 && delay < retryMax {
+		return delay
 	}
 	return retryMax
 }
 
 // decode parses, validates and sender-checks one accepted payload.
 func decode(payload []byte, allowedSenders []string) (email.Transactional, error) {
-	var e email.Transactional
-	if err := json.Unmarshal(payload, &e); err != nil {
-		return e, fmt.Errorf("decode: %w", err)
+	var message email.Transactional
+	if err := json.Unmarshal(payload, &message); err != nil {
+		return message, fmt.Errorf("decode: %w", err)
 	}
-	if err := e.Validate(); err != nil {
-		return e, fmt.Errorf("validate: %w", err)
+	if err := message.Validate(); err != nil {
+		return message, fmt.Errorf("validate: %w", err)
 	}
-	if !e.SenderAllowed(allowedSenders) {
-		return e, fmt.Errorf("from domain %q is not allowed", e.From.Address)
+	if !message.SenderAllowed(allowedSenders) {
+		return message, fmt.Errorf("from domain %q is not allowed", message.From.Address)
 	}
-	return e, nil
+	return message, nil
 }

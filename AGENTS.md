@@ -26,7 +26,8 @@ client ──POST /v1/send-transactional──> cmd/api ──> kafka topic "mes
 ```
 
 - `cmd/api` stamps `messageId`, `eventId` and `timestamp` (UUIDv4s), validates the
-  payload and produces the JSON to `message-accepted`.
+  payload and produces the JSON to `message-accepted`. It also serves
+  `GET /v1/stats` from clickhouse's `sums_by_hour` (`internal/stats`).
 - `cmd/worker` consumes it, renders MIME (`internal/mailmsg`), sends via SMTP and
   then republishes the payload to `message-processed` stamped as its own event:
   fresh `eventId`, send-time `timestamp`, same `messageId`.
@@ -46,7 +47,9 @@ cmd/worker/      Kafka consumer, SMTP sender, retry loop + tests
 internal/email/  Transactional/Address types, NewMessage()/Stamp(), validation
 internal/mailmsg/ MIME rendering (multipart/alternative, quoted-printable)
 internal/sender/  SMTP client: dial timeout, optional required STARTTLS, optional AUTH
-internal/config/  env config: PORT, KAFKA_BROKERS, SMTP_*, ALLOWED_SENDER_DOMAINS
+internal/stats/   sums_by_hour query over the clickhouse HTTP interface (stdlib only)
+internal/config/  env config: PORT, KAFKA_BROKERS, SMTP_*, CLICKHOUSE_*,
+                 ALLOWED_SENDER_DOMAINS
 connect/         redpanda connect stream configs
 clickhouse/      init.sql, run once on first clickhouse start (email_processor_demo
                  database with message_accepted, message_processed tables)
@@ -86,6 +89,12 @@ curl -X POST localhost:8080/v1/send-transactional -d '{
 
 Then check `http://localhost:8025` (Mailpit) or `docker compose logs worker`.
 
+Hourly counts, all filters optional (`tags` repeats; rows must have every tag):
+
+```
+curl -s 'localhost:8080/v1/stats?accountId=0b6f1c1e-6f43-4c9e-9a8e-2f1d3b7a5c10&from=2026-11-03&to=2026-11-04&tags=billing'
+```
+
 Both events land in clickhouse (no body) and opensearch (body stored, not searchable):
 
 ```
@@ -114,9 +123,21 @@ docker compose exec clickhouse clickhouse-client --database email_processor_demo
 - Responses: `202` accepted, `400` validation/JSON, `413` too large, `500` if the
   Kafka produce fails.
 
+`GET /v1/stats`:
+
+- Query params, all optional: `accountId` (UUID), `from` and `to` (RFC 3339 or
+  `YYYY-MM-DD` as midnight UTC), `tags` (repeated, rows must have all of them).
+- Granularity is the hour: an hour counts if its start is in `[from, to)`, so
+  `from=10:30` skips the 10:00 hour.
+- Response: `{"accepted": n, "processed": n, "hours": [{"timestamp", "accepted",
+  "processed"}]}`, oldest hour first. `400` bad params, `500` if clickhouse fails.
+- Filter values reach clickhouse only as query parameters (`{name:Type}`), never
+  as SQL text.
+
 ## Known deliberate shortcuts
 
-- No API auth, no rate limiting.
+- No API auth, no rate limiting. `/v1/stats` answers for any `accountId` it is
+  given.
 - SMTP: `SMTP_TLS=false` in compose because Mailpit offers no STARTTLS/AUTH. Left
   at its default (true), the sender refuses to send without STARTTLS; set
   `SMTP_USERNAME`/`SMTP_PASSWORD` for relays that require AUTH (e.g. SES).

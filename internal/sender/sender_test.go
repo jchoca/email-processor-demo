@@ -12,42 +12,42 @@ import (
 // It advertises the extensions in advertise and answers EHLO with them.
 func fakeServer(t *testing.T, advertise []string) string {
 	t.Helper()
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("listen: %v", err)
 	}
-	t.Cleanup(func() { ln.Close() })
+	t.Cleanup(func() { listener.Close() })
 
 	go func() {
 		for {
-			c, err := ln.Accept()
+			conn, err := listener.Accept()
 			if err != nil {
 				return
 			}
 			go func() {
-				defer c.Close()
-				tp := textproto.NewConn(c)
-				if err := tp.PrintfLine("220 fake ESMTP"); err != nil {
+				defer conn.Close()
+				textConn := textproto.NewConn(conn)
+				if err := textConn.PrintfLine("220 fake ESMTP"); err != nil {
 					return
 				}
 				for {
-					line, err := tp.ReadLine()
+					line, err := textConn.ReadLine()
 					if err != nil {
 						return
 					}
 					switch cmd := strings.ToUpper(line); {
 					case strings.HasPrefix(cmd, "EHLO"):
-						if err := tp.PrintfLine("250-fake"); err != nil {
+						if err := textConn.PrintfLine("250-fake"); err != nil {
 							return
 						}
-						if err := tp.PrintfLine("250 %s", strings.Join(advertise, " ")); err != nil {
+						if err := textConn.PrintfLine("250 %s", strings.Join(advertise, " ")); err != nil {
 							return
 						}
 					case strings.HasPrefix(cmd, "QUIT"):
-						tp.PrintfLine("%s", "221 bye")
+						textConn.PrintfLine("%s", "221 bye")
 						return
 					default:
-						if err := tp.PrintfLine("502 not implemented"); err != nil {
+						if err := textConn.PrintfLine("502 not implemented"); err != nil {
 							return
 						}
 					}
@@ -55,7 +55,7 @@ func fakeServer(t *testing.T, advertise []string) string {
 			}()
 		}
 	}()
-	return ln.Addr().String()
+	return listener.Addr().String()
 }
 
 func TestSendRequiresSTARTTLS(t *testing.T) {
@@ -76,21 +76,21 @@ func TestSendRequiresAUTH(t *testing.T) {
 }
 
 func TestSendTimesOut(t *testing.T) {
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("listen: %v", err)
 	}
-	defer ln.Close()
+	defer listener.Close()
 	go func() {
-		c, err := ln.Accept()
+		conn, err := listener.Accept()
 		if err != nil {
 			return
 		}
-		defer c.Close()
+		defer conn.Close()
 		time.Sleep(2 * time.Second) // never send the greeting
 	}()
 
-	cfg := Config{Addr: ln.Addr().String(), RequireTLS: true, Timeout: 100 * time.Millisecond}
+	cfg := Config{Addr: listener.Addr().String(), RequireTLS: true, Timeout: 100 * time.Millisecond}
 	start := time.Now()
 	err = cfg.Send("a@example.com", []string{"b@example.com"}, nil)
 	if err == nil {

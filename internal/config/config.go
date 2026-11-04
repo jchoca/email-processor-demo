@@ -14,24 +14,24 @@ const TopicProcessed = "message-processed"
 
 // Brokers returns the Kafka brokers from KAFKA_BROKERS (comma separated).
 func Brokers() []string {
-	if b := os.Getenv("KAFKA_BROKERS"); b != "" {
-		return strings.Split(b, ",")
+	if brokers := os.Getenv("KAFKA_BROKERS"); brokers != "" {
+		return strings.Split(brokers, ",")
 	}
 	return []string{"localhost:9092"}
 }
 
 // Port returns the HTTP port from PORT.
 func Port() string {
-	if p := os.Getenv("PORT"); p != "" {
-		return p
+	if port := os.Getenv("PORT"); port != "" {
+		return port
 	}
 	return "8080"
 }
 
 // SMTPAddr returns the SMTP server from SMTP_ADDR.
 func SMTPAddr() string {
-	if a := os.Getenv("SMTP_ADDR"); a != "" {
-		return a
+	if addr := os.Getenv("SMTP_ADDR"); addr != "" {
+		return addr
 	}
 	return "localhost:1025"
 }
@@ -51,13 +51,35 @@ func SMTPRequireTLS() bool {
 	return true
 }
 
+// ClickHouseURL returns the clickhouse HTTP interface from CLICKHOUSE_URL.
+func ClickHouseURL() string {
+	if clickhouseURL := os.Getenv("CLICKHOUSE_URL"); clickhouseURL != "" {
+		return clickhouseURL
+	}
+	return "http://localhost:8123"
+}
+
+// ClickHouseUser returns the clickhouse user from CLICKHOUSE_USER.
+func ClickHouseUser() string { return os.Getenv("CLICKHOUSE_USER") }
+
+// ClickHousePassword returns the clickhouse password from CLICKHOUSE_PASSWORD.
+func ClickHousePassword() string { return os.Getenv("CLICKHOUSE_PASSWORD") }
+
+// ClickHouseDatabase returns the clickhouse database from CLICKHOUSE_DATABASE.
+func ClickHouseDatabase() string {
+	if database := os.Getenv("CLICKHOUSE_DATABASE"); database != "" {
+		return database
+	}
+	return "email_processor_demo"
+}
+
 // SenderDomains returns the allowed from-domains from ALLOWED_SENDER_DOMAINS.
 // Empty means any sender is accepted (local demo default).
 func SenderDomains() []string {
 	var domains []string
-	for _, d := range strings.Split(os.Getenv("ALLOWED_SENDER_DOMAINS"), ",") {
-		if d = strings.TrimSpace(d); d != "" {
-			domains = append(domains, d)
+	for _, domain := range strings.Split(os.Getenv("ALLOWED_SENDER_DOMAINS"), ",") {
+		if domain = strings.TrimSpace(domain); domain != "" {
+			domains = append(domains, domain)
 		}
 	}
 	return domains

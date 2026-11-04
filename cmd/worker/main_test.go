@@ -16,12 +16,12 @@ const validPayload = `{"accountId":"0b6f1c1e-6f43-4c9e-9a8e-2f1d3b7a5c10","from"
 	`"subject":"hi","text":"hi"}`
 
 func TestDecode(t *testing.T) {
-	e, err := decode([]byte(validPayload), nil)
+	message, err := decode([]byte(validPayload), nil)
 	if err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	if e.From.Address != "a@example.com" || e.Subject != "hi" {
-		t.Errorf("unexpected payload: %+v", e)
+	if message.From.Address != "a@example.com" || message.Subject != "hi" {
+		t.Errorf("unexpected payload: %+v", message)
 	}
 
 	tests := map[string]string{
@@ -41,7 +41,7 @@ func TestDeliver(t *testing.T) {
 	defer func(base, max time.Duration) { retryBase, retryMax = base, max }(retryBase, retryMax)
 	retryBase, retryMax = time.Millisecond, 5*time.Millisecond
 
-	e, err := decode([]byte(validPayload), nil)
+	message, err := decode([]byte(validPayload), nil)
 	if err != nil {
 		t.Fatalf("decode: %v", err)
 	}
@@ -59,7 +59,7 @@ func TestDeliver(t *testing.T) {
 		return nil
 	}
 
-	deliver(context.Background(), e, send)
+	deliver(context.Background(), message, send)
 	if attempts != 3 {
 		t.Fatalf("attempts = %d, want 3 (retry until success)", attempts)
 	}
@@ -77,7 +77,7 @@ func TestDeliver(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
 	defer cancel()
 	attempts = 0
-	if deliver(ctx, e, func(string, []string, []byte) error {
+	if deliver(ctx, message, func(string, []string, []byte) error {
 		attempts++
 		return errors.New("smtp down")
 	}) {
@@ -112,20 +112,20 @@ func TestPermanent(t *testing.T) {
 		{&textproto.Error{Code: 421, Msg: "throttled"}, false},
 		{errors.New("dial tcp: connection refused"), false},
 	}
-	for _, tc := range cases {
-		if got := permanent(tc.err); got != tc.want {
-			t.Errorf("permanent(%v) = %v, want %v", tc.err, got, tc.want)
+	for _, testCase := range cases {
+		if got := permanent(testCase.err); got != testCase.want {
+			t.Errorf("permanent(%v) = %v, want %v", testCase.err, got, testCase.want)
 		}
 	}
 }
 
 func TestDeliverDropsPermanent(t *testing.T) {
-	e, err := decode([]byte(validPayload), nil)
+	message, err := decode([]byte(validPayload), nil)
 	if err != nil {
 		t.Fatalf("decode: %v", err)
 	}
 	attempts := 0
-	if deliver(context.Background(), e, func(string, []string, []byte) error {
+	if deliver(context.Background(), message, func(string, []string, []byte) error {
 		attempts++
 		return &textproto.Error{Code: 550, Msg: "no such user"}
 	}) {
@@ -140,12 +140,12 @@ func TestDeliverRetriesTransient(t *testing.T) {
 	defer func(base, max time.Duration) { retryBase, retryMax = base, max }(retryBase, retryMax)
 	retryBase, retryMax = time.Millisecond, 5*time.Millisecond
 
-	e, err := decode([]byte(validPayload), nil)
+	message, err := decode([]byte(validPayload), nil)
 	if err != nil {
 		t.Fatalf("decode: %v", err)
 	}
 	attempts := 0
-	deliver(context.Background(), e, func(string, []string, []byte) error {
+	deliver(context.Background(), message, func(string, []string, []byte) error {
 		attempts++
 		if attempts < 3 {
 			return &textproto.Error{Code: 451, Msg: "try later"}

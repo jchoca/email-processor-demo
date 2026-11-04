@@ -11,12 +11,13 @@ import (
 	"time"
 
 	"example.com/email-processor/internal/config"
+	"example.com/email-processor/internal/stats"
 
 	"github.com/twmb/franz-go/pkg/kgo"
 )
 
 func main() {
-	kc, err := kgo.NewClient(
+	kafkaClient, err := kgo.NewClient(
 		kgo.SeedBrokers(config.Brokers()...),
 		kgo.DefaultProduceTopic(config.TopicAccepted),
 		// records retry forever by default; give up so the API can answer 500
@@ -26,13 +27,20 @@ func main() {
 		slog.Error("kafka", "err", err)
 		os.Exit(1)
 	}
-	defer kc.Close()
+	defer kafkaClient.Close()
+
+	clickhouse := stats.Client{
+		URL:      config.ClickHouseURL(),
+		User:     config.ClickHouseUser(),
+		Password: config.ClickHousePassword(),
+		Database: config.ClickHouseDatabase(),
+	}
 
 	srv := &http.Server{
 		Addr: ":" + config.Port(),
 		Handler: routes(func(ctx context.Context, value []byte) error {
-			return kc.ProduceSync(ctx, &kgo.Record{Value: value}).FirstErr()
-		}, config.SenderDomains()),
+			return kafkaClient.ProduceSync(ctx, &kgo.Record{Value: value}).FirstErr()
+		}, clickhouse.Hours, config.SenderDomains()),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 

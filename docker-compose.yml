@@ -11,9 +11,13 @@ services:
       - "8080:8080"
     depends_on:
       - kafka
+      - clickhouse
     environment:
       PORT: "8080"
       KAFKA_BROKERS: kafka:9093
+      CLICKHOUSE_URL: http://clickhouse:8123
+      CLICKHOUSE_USER: email-processor-demo
+      CLICKHOUSE_PASSWORD: email-processor-demo
     restart: unless-stopped
 
   worker:

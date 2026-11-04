@@ -15,63 +15,64 @@ import (
 	"example.com/email-processor/internal/email"
 )
 
-// Build renders e as an RFC 5322 / MIME message with a multipart/alternative
-// body holding whichever of the text and html parts are present.
-func Build(e email.Transactional) ([]byte, error) {
-	text := strings.TrimSpace(e.Text) != ""
-	html := strings.TrimSpace(e.HTML) != ""
+// Build renders message as an RFC 5322 / MIME message with a
+// multipart/alternative body holding whichever of the text and html parts are
+// present.
+func Build(message email.Transactional) ([]byte, error) {
+	text := strings.TrimSpace(message.Text) != ""
+	html := strings.TrimSpace(message.HTML) != ""
 	if !text && !html {
 		return nil, errors.New("html or text body is required")
 	}
 
-	var b bytes.Buffer
-	mw := multipart.NewWriter(&b) // writes nothing until the first part
+	var buffer bytes.Buffer
+	multipartWriter := multipart.NewWriter(&buffer) // writes nothing until the first part
 
 	headers := []string{
-		"From: " + formatAddress(e.From),
-		"To: " + formatAddress(e.To),
-		"Subject: " + mime.QEncoding.Encode("utf-8", e.Subject),
+		"From: " + formatAddress(message.From),
+		"To: " + formatAddress(message.To),
+		"Subject: " + mime.QEncoding.Encode("utf-8", message.Subject),
 		"Date: " + time.Now().Format(time.RFC1123Z),
 		"MIME-Version: 1.0",
-		`Content-Type: multipart/alternative; boundary="` + mw.Boundary() + `"`,
+		`Content-Type: multipart/alternative; boundary="` + multipartWriter.Boundary() + `"`,
 	}
-	for _, h := range headers {
-		b.WriteString(h + "\r\n")
+	for _, header := range headers {
+		buffer.WriteString(header + "\r\n")
 	}
-	b.WriteString("\r\n")
+	buffer.WriteString("\r\n")
 
 	if text {
-		if err := writePart(mw, "text/plain; charset=utf-8", e.Text); err != nil {
+		if err := writePart(multipartWriter, "text/plain; charset=utf-8", message.Text); err != nil {
 			return nil, err
 		}
 	}
 	if html {
-		if err := writePart(mw, "text/html; charset=utf-8", e.HTML); err != nil {
+		if err := writePart(multipartWriter, "text/html; charset=utf-8", message.HTML); err != nil {
 			return nil, err
 		}
 	}
-	if err := mw.Close(); err != nil {
+	if err := multipartWriter.Close(); err != nil {
 		return nil, err
 	}
-	return b.Bytes(), nil
+	return buffer.Bytes(), nil
 }
 
-func writePart(mw *multipart.Writer, contentType, body string) error {
-	p, err := mw.CreatePart(textproto.MIMEHeader{
+func writePart(multipartWriter *multipart.Writer, contentType, body string) error {
+	part, err := multipartWriter.CreatePart(textproto.MIMEHeader{
 		"Content-Type":              {contentType},
 		"Content-Transfer-Encoding": {"quoted-printable"},
 	})
 	if err != nil {
 		return err
 	}
-	w := quotedprintable.NewWriter(p)
-	if _, err := w.Write([]byte(body)); err != nil {
+	encoder := quotedprintable.NewWriter(part)
+	if _, err := encoder.Write([]byte(body)); err != nil {
 		return err
 	}
-	return w.Close()
+	return encoder.Close()
 }
 
 // formatAddress encodes the display name (RFC 2047) and quotes it when needed.
-func formatAddress(a email.Address) string {
-	return (&mail.Address{Name: a.Name, Address: a.Address}).String()
+func formatAddress(address email.Address) string {
+	return (&mail.Address{Name: address.Name, Address: address.Address}).String()
 }

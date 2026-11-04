@@ -20,17 +20,17 @@ type Config struct {
 
 // Send delivers msg to the envelope recipients. SMTP 5xx failures are returned
 // as *textproto.Error so callers can tell permanent from transient errors.
-func (c Config) Send(from string, to []string, msg []byte) error {
-	timeout := c.Timeout
+func (config Config) Send(from string, to []string, msg []byte) error {
+	timeout := config.Timeout
 	if timeout <= 0 {
 		timeout = 30 * time.Second
 	}
-	host, _, err := net.SplitHostPort(c.Addr)
+	host, _, err := net.SplitHostPort(config.Addr)
 	if err != nil {
 		return err
 	}
 
-	conn, err := net.DialTimeout("tcp", c.Addr, timeout)
+	conn, err := net.DialTimeout("tcp", config.Addr, timeout)
 	if err != nil {
 		return err
 	}
@@ -40,47 +40,47 @@ func (c Config) Send(from string, to []string, msg []byte) error {
 		return err
 	}
 
-	cl, err := smtp.NewClient(conn, host)
+	client, err := smtp.NewClient(conn, host)
 	if err != nil {
 		return err
 	}
-	defer cl.Close()
+	defer client.Close()
 
-	if c.RequireTLS {
-		if ok, _ := cl.Extension("STARTTLS"); !ok {
+	if config.RequireTLS {
+		if ok, _ := client.Extension("STARTTLS"); !ok {
 			return errors.New("smtp: server does not offer STARTTLS")
 		}
-		if err := cl.StartTLS(&tls.Config{ServerName: host, MinVersion: tls.VersionTLS12}); err != nil {
+		if err := client.StartTLS(&tls.Config{ServerName: host, MinVersion: tls.VersionTLS12}); err != nil {
 			return err
 		}
 	}
-	if c.Username != "" {
-		if ok, _ := cl.Extension("AUTH"); !ok {
+	if config.Username != "" {
+		if ok, _ := client.Extension("AUTH"); !ok {
 			return errors.New("smtp: server does not offer AUTH")
 		}
-		if err := cl.Auth(smtp.PlainAuth("", c.Username, c.Password, host)); err != nil {
+		if err := client.Auth(smtp.PlainAuth("", config.Username, config.Password, host)); err != nil {
 			return err
 		}
 	}
 
-	if err := cl.Mail(from); err != nil {
+	if err := client.Mail(from); err != nil {
 		return err
 	}
 	for _, rcpt := range to {
-		if err := cl.Rcpt(rcpt); err != nil {
+		if err := client.Rcpt(rcpt); err != nil {
 			return err
 		}
 	}
-	w, err := cl.Data()
+	dataWriter, err := client.Data()
 	if err != nil {
 		return err
 	}
-	if _, err := w.Write(msg); err != nil {
-		w.Close()
+	if _, err := dataWriter.Write(msg); err != nil {
+		dataWriter.Close()
 		return err
 	}
-	if err := w.Close(); err != nil {
+	if err := dataWriter.Close(); err != nil {
 		return err
 	}
-	return cl.Quit()
+	return client.Quit()
 }

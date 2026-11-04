@@ -40,78 +40,79 @@ type Transactional struct {
 
 // NewMessage starts the event chain for one request: the messageId is shared by
 // every event of that mail, while eventId and timestamp are per event.
-func (e *Transactional) NewMessage() {
-	e.MessageID = newEventID()
-	e.Stamp()
+func (message *Transactional) NewMessage() {
+	message.MessageID = newEventID()
+	message.Stamp()
 }
 
 // Stamp gives the event a fresh id and a millisecond-precision UTC timestamp.
 // Each hop (accepted, processed) stamps its own event under the same messageId.
-func (e *Transactional) Stamp() {
-	e.EventID = newEventID()
-	e.Timestamp = time.Now().UTC().Truncate(time.Millisecond)
+func (message *Transactional) Stamp() {
+	message.EventID = newEventID()
+	message.Timestamp = time.Now().UTC().Truncate(time.Millisecond)
 }
 
 // newEventID returns a random UUIDv4.
 func newEventID() string {
-	var b [16]byte
-	rand.Read(b[:])         // never fails on supported platforms
-	b[6] = b[6]&0x0f | 0x40 // version 4
-	b[8] = b[8]&0x3f | 0x80 // RFC 4122 variant
-	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:16])
+	var random [16]byte
+	rand.Read(random[:])              // never fails on supported platforms
+	random[6] = random[6]&0x0f | 0x40 // version 4
+	random[8] = random[8]&0x3f | 0x80 // RFC 4122 variant
+	return fmt.Sprintf("%x-%x-%x-%x-%x", random[0:4], random[4:6], random[6:8], random[8:10], random[10:16])
 }
 
 // Validate checks required fields, address syntax and length limits.
-func (e Transactional) Validate() error {
-	if !isUUID(e.AccountID) {
+func (message Transactional) Validate() error {
+	if !IsUUID(message.AccountID) {
 		return errors.New("accountId must be a UUID")
 	}
-	for _, a := range []struct {
+	for _, field := range []struct {
 		name  string
 		value Address
 	}{
-		{"from", e.From},
-		{"to", e.To},
+		{"from", message.From},
+		{"to", message.To},
 	} {
-		addr := strings.TrimSpace(a.value.Address)
-		if utf8.RuneCountInString(a.value.Name) > maxAddressLen {
-			return fmt.Errorf("%s.name must be %d characters or fewer", a.name, maxAddressLen)
+		addr := strings.TrimSpace(field.value.Address)
+		if utf8.RuneCountInString(field.value.Name) > maxAddressLen {
+			return fmt.Errorf("%s.name must be %d characters or fewer", field.name, maxAddressLen)
 		}
 		if utf8.RuneCountInString(addr) > maxAddressLen {
-			return fmt.Errorf("%s.address must be %d characters or fewer", a.name, maxAddressLen)
+			return fmt.Errorf("%s.address must be %d characters or fewer", field.name, maxAddressLen)
 		}
 		if addr == "" {
-			return fmt.Errorf("%s.address is required", a.name)
+			return fmt.Errorf("%s.address is required", field.name)
 		}
 		// reject display names here; they belong in .name
 		parsed, err := mail.ParseAddress(addr)
 		if err != nil || parsed.Address != addr {
-			return fmt.Errorf("%s.address is not a valid email address", a.name)
+			return fmt.Errorf("%s.address is not a valid email address", field.name)
 		}
 	}
-	if strings.TrimSpace(e.HTML) == "" && strings.TrimSpace(e.Text) == "" {
+	if strings.TrimSpace(message.HTML) == "" && strings.TrimSpace(message.Text) == "" {
 		return errors.New("html or text body is required")
 	}
-	if utf8.RuneCountInString(e.Subject) > maxSubjectLen {
+	if utf8.RuneCountInString(message.Subject) > maxSubjectLen {
 		return fmt.Errorf("subject must be %d characters or fewer", maxSubjectLen)
 	}
-	if len(e.Tags) > maxTags {
+	if len(message.Tags) > maxTags {
 		return fmt.Errorf("tags must be %d or fewer", maxTags)
 	}
 	return nil
 }
 
-// isUUID reports whether s is a hex UUID in the 8-4-4-4-12 form, any version.
-func isUUID(s string) bool {
-	if len(s) != 36 {
+// IsUUID reports whether candidate is a hex UUID in the 8-4-4-4-12 form, any
+// version.
+func IsUUID(candidate string) bool {
+	if len(candidate) != 36 {
 		return false
 	}
-	for i, c := range s {
-		if i == 8 || i == 13 || i == 18 || i == 23 {
-			if c != '-' {
+	for index, char := range candidate {
+		if index == 8 || index == 13 || index == 18 || index == 23 {
+			if char != '-' {
 				return false
 			}
-		} else if !strings.ContainsRune("0123456789abcdefABCDEF", c) {
+		} else if !strings.ContainsRune("0123456789abcdefABCDEF", char) {
 			return false
 		}
 	}
@@ -120,14 +121,14 @@ func isUUID(s string) bool {
 
 // SenderAllowed reports whether the from domain is one of allowed (a domain
 // also authorises its subdomains). An empty allowlist accepts any sender.
-func (e Transactional) SenderAllowed(allowed []string) bool {
+func (message Transactional) SenderAllowed(allowed []string) bool {
 	if len(allowed) == 0 {
 		return true
 	}
-	host := strings.ToLower(e.From.Address[strings.LastIndex(e.From.Address, "@")+1:])
-	for _, d := range allowed {
-		d = strings.ToLower(strings.TrimSpace(d))
-		if d != "" && (host == d || strings.HasSuffix(host, "."+d)) {
+	host := strings.ToLower(message.From.Address[strings.LastIndex(message.From.Address, "@")+1:])
+	for _, domain := range allowed {
+		domain = strings.ToLower(strings.TrimSpace(domain))
+		if domain != "" && (host == domain || strings.HasSuffix(host, "."+domain)) {
 			return true
 		}
 	}

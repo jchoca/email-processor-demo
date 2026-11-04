@@ -12,24 +12,24 @@ import (
 	"example.com/email-processor/internal/email"
 )
 
-func mustParseAddress(t *testing.T, s string) *mail.Address {
+func mustParseAddress(t *testing.T, header string) *mail.Address {
 	t.Helper()
-	a, err := mail.ParseAddress(s)
+	address, err := mail.ParseAddress(header)
 	if err != nil {
-		t.Fatalf("bad address header %q: %v", s, err)
+		t.Fatalf("bad address header %q: %v", header, err)
 	}
-	return a
+	return address
 }
 
 func TestBuild(t *testing.T) {
-	e := email.Transactional{
+	message := email.Transactional{
 		From:    email.Address{Name: "Alice", Address: "a@example.com"},
 		To:      email.Address{Name: "Bob", Address: "b@example.com"},
 		Subject: "héllo",
 		HTML:    "<p>hi</p>",
 		Text:    "hi\n",
 	}
-	raw, err := Build(e)
+	raw, err := Build(message)
 	if err != nil {
 		t.Fatalf("build: %v", err)
 	}
@@ -49,26 +49,26 @@ func TestBuild(t *testing.T) {
 	if err != nil || mediaType != "multipart/alternative" {
 		t.Fatalf("Content-Type = %q, want multipart/alternative", msg.Header.Get("Content-Type"))
 	}
-	mr := multipart.NewReader(msg.Body, params["boundary"])
+	partReader := multipart.NewReader(msg.Body, params["boundary"])
 
 	want := map[string]string{
 		"text/plain; charset=utf-8": "hi\r\n",
 		"text/html; charset=utf-8":  "<p>hi</p>",
 	}
 	for range want {
-		p, err := mr.NextPart()
+		part, err := partReader.NextPart()
 		if err != nil {
 			t.Fatalf("next part: %v", err)
 		}
-		body, err := io.ReadAll(quotedprintable.NewReader(p))
+		body, err := io.ReadAll(quotedprintable.NewReader(part))
 		if err != nil {
 			t.Fatalf("read part: %v", err)
 		}
-		ct := p.Header.Get("Content-Type")
-		if string(body) != want[ct] {
-			t.Errorf("%s body = %q, want %q", ct, body, want[ct])
+		contentType := part.Header.Get("Content-Type")
+		if string(body) != want[contentType] {
+			t.Errorf("%s body = %q, want %q", contentType, body, want[contentType])
 		}
-		delete(want, ct)
+		delete(want, contentType)
 	}
 	if len(want) != 0 {
 		t.Errorf("missing parts: %v", want)
@@ -88,11 +88,11 @@ func TestBuild(t *testing.T) {
 		t.Fatalf("not a valid message: %v", err)
 	}
 	_, params, _ = mime.ParseMediaType(msg.Header.Get("Content-Type"))
-	p, err := multipart.NewReader(msg.Body, params["boundary"]).NextPart()
+	part, err := multipart.NewReader(msg.Body, params["boundary"]).NextPart()
 	if err != nil {
 		t.Fatalf("next part: %v", err)
 	}
-	body, _ := io.ReadAll(quotedprintable.NewReader(p))
+	body, _ := io.ReadAll(quotedprintable.NewReader(part))
 	if string(body) != "plain only" {
 		t.Errorf("body = %q", body)
 	}
