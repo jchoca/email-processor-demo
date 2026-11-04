@@ -41,6 +41,8 @@ stats:
 	@curl -sS "localhost:8080/v1/stats?from=$(THIRTY_DAYS_AGO)"
 
 # the newest 50 events of the last 30 days, e.g. make activity SUBJECT="your invoice"
+# or MESSAGE_ID=<uuid> for one message's accepted and processed events
 activity:
 	@curl -sS -G localhost:8080/v1/activity --data-urlencode "from=$(THIRTY_DAYS_AGO)" \
-	  $(if $(SUBJECT),--data-urlencode "subject=$(SUBJECT)")
+	  $(if $(SUBJECT),--data-urlencode "subject=$(SUBJECT)") \
+	  $(if $(MESSAGE_ID),--data-urlencode "messageId=$(MESSAGE_ID)")

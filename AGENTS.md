@@ -79,6 +79,7 @@ make load RATE=5         # steady stream of requests per second until Ctrl-C
 make stats               # GET /v1/stats for the last 30 days, all accounts and tags
 make activity            # GET /v1/activity, newest 50 events of the last 30 days;
                          # SUBJECT="your invoice" filters by subject words
+                         # MESSAGE_ID=<uuid> shows one message's events
 ```
 
 Send a sample request:
