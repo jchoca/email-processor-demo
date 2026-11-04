@@ -74,6 +74,7 @@ docker compose up -d --build kafka kafka-bootstrap api worker mailpit
 make up / make down      # same, via compose; down removes orphans
 make demo                # POST three sample messages to a running stack
 make load RATE=5         # steady stream of requests per second until Ctrl-C
+make stats               # GET /v1/stats for the last 30 days, all accounts and tags
 ```
 
 Send a sample request:

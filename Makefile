@@ -1,6 +1,6 @@
 SHELL := /bin/bash
 
-.PHONY: test build up down demo load
+.PHONY: test build up down demo load stats
 
 up: down
 	docker compose up -d --build
@@ -31,3 +31,9 @@ load:
 	    -d '{"accountId":"'$$acct'","from":{"address":"alice@example.com"},"to":{"address":"bob@example.com"},"subject":"load test","text":"hi","tags":["load"]}' & \
 	  sleep $(shell awk 'BEGIN{print 1/$(RATE)}'); \
 	done
+
+# hourly stats for the last 30 days; date -r is BSD/macOS, date -d @ is GNU/busybox
+stats:
+	@from=$$(( $$(date +%s) - 30 * 86400 )); \
+	from=$$(date -u -r $$from +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -d @$$from +%Y-%m-%dT%H:%M:%SZ); \
+	curl -sS "localhost:8080/v1/stats?from=$$from"
