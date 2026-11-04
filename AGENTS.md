@@ -27,7 +27,8 @@ client ──POST /v1/send-transactional──> cmd/api ──> kafka topic "mes
 
 - `cmd/api` stamps `messageId`, `eventId` and `timestamp` (UUIDv4s), validates the
   payload and produces the JSON to `message-accepted`. It also serves
-  `GET /v1/stats` from clickhouse's `sums_by_hour` (`internal/stats`).
+  `GET /v1/stats` from clickhouse's `sums_by_hour` (`internal/stats`) and
+  `GET /v1/activity` from the opensearch `message-*` indices (`internal/activity`).
 - `cmd/worker` consumes it, renders MIME (`internal/mailmsg`), sends via SMTP and
   then republishes the payload to `message-processed` stamped as its own event:
   fresh `eventId`, send-time `timestamp`, same `messageId`.
@@ -48,8 +49,9 @@ internal/email/  Transactional/Address types, NewMessage()/Stamp(), validation
 internal/mailmsg/ MIME rendering (multipart/alternative, quoted-printable)
 internal/sender/  SMTP client: dial timeout, optional required STARTTLS, optional AUTH
 internal/stats/   sums_by_hour query over the clickhouse HTTP interface (stdlib only)
+internal/activity/ event search over the opensearch REST API (stdlib only)
 internal/config/  env config: PORT, KAFKA_BROKERS, SMTP_*, CLICKHOUSE_*,
-                 ALLOWED_SENDER_DOMAINS
+                 OPENSEARCH_URL, ALLOWED_SENDER_DOMAINS
 connect/         redpanda connect stream configs
 clickhouse/      init.sql, run once on first clickhouse start (email_processor_demo
                  database with message_accepted, message_processed tables)
@@ -75,6 +77,8 @@ make up / make down      # same, via compose; down removes orphans
 make demo                # POST three sample messages to a running stack
 make load RATE=5         # steady stream of requests per second until Ctrl-C
 make stats               # GET /v1/stats for the last 30 days, all accounts and tags
+make activity            # GET /v1/activity, newest 50 events of the last 30 days;
+                         # SUBJECT="your invoice" filters by subject words
 ```
 
 Send a sample request:
@@ -94,6 +98,12 @@ Hourly counts, all filters optional (`tags` repeats; rows must have every tag):
 
 ```
 curl -s 'localhost:8080/v1/stats?accountId=0b6f1c1e-6f43-4c9e-9a8e-2f1d3b7a5c10&from=2026-11-03&to=2026-11-04&tags=billing'
+```
+
+Events, newest first, filtered by any indexed field:
+
+```
+curl -s 'localhost:8080/v1/activity?subject=invoice&tags=billing&from.address=alice@example.com&limit=10'
 ```
 
 Both events land in clickhouse (no body) and opensearch (body stored, not searchable):
@@ -135,10 +145,30 @@ docker compose exec clickhouse clickhouse-client --database email_processor_demo
 - Filter values reach clickhouse only as query parameters (`{name:Type}`), never
   as SQL text.
 
+`GET /v1/activity`:
+
+- Field filters are query params named after the indexed fields; every value
+  given must match (repeat a param for more):
+  - exact (keyword): `messageId`, `eventId`, `accountId`, `tags`, `from.address`,
+    `to.address`, `subject.keyword`
+  - words (text, all words must appear, case-insensitive): `subject`,
+    `from.name`, `to.name`
+- `from` / `to` bound `timestamp` like `/v1/stats` (note `from` is the time
+  range, `from.address` the sender). `limit` is 1-100, default 50.
+- Unknown params are `400`, so a typo cannot silently widen the search.
+- Response: `{"total": n, "events": [...]}`, newest first. Each event is the
+  stored doc without `text`/`html` plus `"event": "accepted" | "processed"`
+  (from the index name). `total` is exact (`track_total_hits`). `500` if
+  opensearch fails.
+- Keep the field list in `internal/activity` in step with
+  `opensearch/template.json`.
+
 ## Known deliberate shortcuts
 
-- No API auth, no rate limiting. `/v1/stats` answers for any `accountId` it is
-  given.
+- No API auth, no rate limiting. `/v1/stats` and `/v1/activity` answer for any
+  `accountId` they are given, or for all accounts when it is left out.
+- `/v1/activity` has no paging past `limit`; narrow `to` to the oldest
+  timestamp seen to read further back.
 - SMTP: `SMTP_TLS=false` in compose because Mailpit offers no STARTTLS/AUTH. Left
   at its default (true), the sender refuses to send without STARTTLS; set
   `SMTP_USERNAME`/`SMTP_PASSWORD` for relays that require AUTH (e.g. SES).

@@ -73,6 +73,14 @@ func ClickHouseDatabase() string {
 	return "email_processor_demo"
 }
 
+// OpenSearchURL returns the opensearch cluster from OPENSEARCH_URL.
+func OpenSearchURL() string {
+	if opensearchURL := os.Getenv("OPENSEARCH_URL"); opensearchURL != "" {
+		return opensearchURL
+	}
+	return "http://localhost:9200"
+}
+
 // SenderDomains returns the allowed from-domains from ALLOWED_SENDER_DOMAINS.
 // Empty means any sender is accepted (local demo default).
 func SenderDomains() []string {

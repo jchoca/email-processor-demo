@@ -12,12 +12,14 @@ services:
     depends_on:
       - kafka
       - clickhouse
+      - opensearch
     environment:
       PORT: "8080"
       KAFKA_BROKERS: kafka:9093
       CLICKHOUSE_URL: http://clickhouse:8123
       CLICKHOUSE_USER: email-processor-demo
       CLICKHOUSE_PASSWORD: email-processor-demo
+      OPENSEARCH_URL: http://opensearch:9200
     restart: unless-stopped
 
   worker:
@@ -129,6 +131,7 @@ services:
       # demo credentials; the user and the database are created on first start
       CLICKHOUSE_USER: email-processor-demo
       CLICKHOUSE_PASSWORD: email-processor-demo
+      OPENSEARCH_URL: http://opensearch:9200
       CLICKHOUSE_DB: email_processor_demo
     ports:
       - "8123:8123" # HTTP interface

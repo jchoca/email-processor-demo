@@ -1,6 +1,6 @@
 SHELL := /bin/bash
 
-.PHONY: test build up down demo load stats
+.PHONY: test build up down demo load stats activity
 
 up: down
 	docker compose up -d --build
@@ -32,8 +32,15 @@ load:
 	  sleep $(shell awk 'BEGIN{print 1/$(RATE)}'); \
 	done
 
-# hourly stats for the last 30 days; date -r is BSD/macOS, date -d @ is GNU/busybox
+# exactly 30 days before now in UTC; date -r is BSD/macOS, date -d @ is GNU/busybox
+THIRTY_DAYS_AGO = $(shell seconds=$$(( $$(date +%s) - 30 * 86400 )); \
+	date -u -r $$seconds +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -d @$$seconds +%Y-%m-%dT%H:%M:%SZ)
+
+# hourly stats for the last 30 days
 stats:
-	@from=$$(( $$(date +%s) - 30 * 86400 )); \
-	from=$$(date -u -r $$from +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -d @$$from +%Y-%m-%dT%H:%M:%SZ); \
-	curl -sS "localhost:8080/v1/stats?from=$$from"
+	@curl -sS "localhost:8080/v1/stats?from=$(THIRTY_DAYS_AGO)"
+
+# the newest 50 events of the last 30 days, e.g. make activity SUBJECT="your invoice"
+activity:
+	@curl -sS -G localhost:8080/v1/activity --data-urlencode "from=$(THIRTY_DAYS_AGO)" \
+	  $(if $(SUBJECT),--data-urlencode "subject=$(SUBJECT)")

@@ -10,6 +10,7 @@ import (
 	"syscall"
 	"time"
 
+	"example.com/email-processor/internal/activity"
 	"example.com/email-processor/internal/config"
 	"example.com/email-processor/internal/stats"
 
@@ -35,12 +36,13 @@ func main() {
 		Password: config.ClickHousePassword(),
 		Database: config.ClickHouseDatabase(),
 	}
+	opensearch := activity.Client{URL: config.OpenSearchURL()}
 
 	srv := &http.Server{
 		Addr: ":" + config.Port(),
 		Handler: routes(func(ctx context.Context, value []byte) error {
 			return kafkaClient.ProduceSync(ctx, &kgo.Record{Value: value}).FirstErr()
-		}, clickhouse.Hours, config.SenderDomains()),
+		}, clickhouse.Hours, opensearch.Search, config.SenderDomains()),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 
