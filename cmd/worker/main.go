@@ -71,22 +71,22 @@ func main() {
 
 		for _, record := range fetches.Records() {
 			message, err := decode(record.Value, allowedSenders)
+
 			if err != nil {
-				// unparseable or disallowed payloads never become sendable: drop
+				// Unparseable or disallowed payloads never become sendable: drop.
 				slog.Error("skip", "offset", record.Offset, "err", err)
-			} else if deliver(ctx, message, smtp.Send) { // retries transient failures until sent
-				// the processed event is its own event: fresh id and timestamp
-				message.Stamp()
-				payload, err := json.Marshal(message)
-				if err != nil {
-					slog.Error("marshal processed", "offset", record.Offset, "err", err)
-				} else if err := kafkaClient.ProduceSync(ctx, &kgo.Record{Value: payload}).FirstErr(); err != nil {
-					slog.Error("publish", "topic", config.TopicProcessed, "err", err)
+			} else if deliver(ctx, message, smtp.Send) {
+				// Delivery succeeded; publish a processed event.
+				if err := publishProcessed(ctx, kafkaClient, message); err != nil {
+					slog.Error("publish processed", "offset", record.Offset, "err", err)
+					return // No commit; retry after restart.
 				}
 			}
+
 			if ctx.Err() != nil {
-				return // no commit: the message is redelivered after restart
+				return // No commit; the message is redelivered after restart.
 			}
+
 			if err := kafkaClient.CommitRecords(ctx, record); err != nil {
 				if ctx.Err() != nil {
 					return
@@ -95,6 +95,28 @@ func main() {
 			}
 		}
 	}
+}
+
+// publishProcessed publishes a new event for a successfully delivered message.
+func publishProcessed(
+	ctx context.Context,
+	client *kgo.Client,
+	message email.Transactional,
+) error {
+	message.Stamp()
+
+	payload, err := json.Marshal(message)
+	if err != nil {
+		return fmt.Errorf("marshal processed: %w", err)
+	}
+
+	if err := client.ProduceSync(ctx, &kgo.Record{
+		Value: payload,
+	}).FirstErr(); err != nil {
+		return fmt.Errorf("produce processed: %w", err)
+	}
+
+	return nil
 }
 
 // deliver sends one message and reports whether it went out: transient errors
